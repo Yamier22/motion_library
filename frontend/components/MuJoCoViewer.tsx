@@ -10,6 +10,7 @@ import {
   getDefaultSceneXML,
   MuJoCoModule,
 } from '@/lib/mujoco-loader';
+import { modelApi } from '@/lib/api';
 
 interface MuJoCoViewerProps {
   modelXML?: string;
@@ -32,6 +33,62 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Debug helper - expose scene to window for debugging
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).debugMuJoCo = {
+        scene: sceneRef.current,
+        camera: cameraRef.current,
+        renderer: rendererRef.current,
+        model: modelRef.current,
+        data: dataRef.current,
+        bodies: bodiesRef.current,
+        logSceneGraph: () => {
+          if (!sceneRef.current) {
+            console.log('Scene not initialized');
+            return;
+          }
+          console.log('=== Three.js Scene Graph ===');
+          sceneRef.current.traverse((object) => {
+            const indent = '  '.repeat(getObjectDepth(object, sceneRef.current!));
+            console.log(`${indent}${object.type}: ${object.name || '(unnamed)'}`);
+            if (object instanceof THREE.Mesh) {
+              console.log(`${indent}  ├─ Geometry: ${object.geometry.type}`);
+              console.log(`${indent}  └─ Material: ${(object.material as any).type}`);
+            }
+          });
+          console.log('=== Total Objects ===');
+          let meshCount = 0;
+          sceneRef.current.traverse((obj) => {
+            if (obj instanceof THREE.Mesh) meshCount++;
+          });
+          console.log(`Meshes: ${meshCount}`);
+          console.log(`Total children: ${sceneRef.current.children.length}`);
+        },
+        getMuJoCoRoot: () => {
+          return sceneRef.current?.getObjectByName('MuJoCo Root');
+        },
+      };
+      console.log('Debug tools available: window.debugMuJoCo');
+      console.log('  - debugMuJoCo.logSceneGraph() - Print scene structure');
+      console.log('  - debugMuJoCo.scene - Access Three.js scene');
+      console.log('  - debugMuJoCo.camera - Access camera');
+      console.log('  - debugMuJoCo.model - Access MuJoCo model');
+      console.log('  - debugMuJoCo.getMuJoCoRoot() - Get MuJoCo root object');
+    }
+  }, [sceneRef.current, cameraRef.current, rendererRef.current]);
+
+  // Helper to calculate object depth in scene graph
+  const getObjectDepth = (object: THREE.Object3D, root: THREE.Object3D): number => {
+    let depth = 0;
+    let current = object;
+    while (current.parent && current !== root) {
+      depth++;
+      current = current.parent;
+    }
+    return depth;
+  };
 
   // Initialize Three.js scene and MuJoCo WASM
   useEffect(() => {
@@ -105,14 +162,45 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
         controls.update();
         controlsRef.current = controls;
 
-        // Load default empty scene
-        const defaultXML = getDefaultSceneXML();
-        const { model, data } = loadModelFromXML(mujoco, defaultXML);
-        modelRef.current = model;
-        dataRef.current = data;
+        // Load default model from backend
+        try {
+          // Get the list of models to find the default model
+          const modelsData = await modelApi.list();
 
-        // Create scene objects
-        createSceneObjects(scene, mujoco, model, data);
+          // Find the default model (it should be in default/default.xml)
+          const defaultModel = modelsData.models.find(
+            (m) => m.relative_path === 'default/default.xml'
+          );
+
+          if (defaultModel) {
+            // Fetch the actual model XML
+            const modelBlob = await modelApi.get(defaultModel.id);
+            const defaultXML = await modelBlob.text();
+
+            const { model, data } = loadModelFromXML(mujoco, defaultXML);
+            modelRef.current = model;
+            dataRef.current = data;
+            createSceneObjects(scene, mujoco, model, data);
+
+            console.log('Default model loaded successfully');
+            console.log('Use debugMuJoCo.logSceneGraph() to inspect scene');
+
+            // Start render loop
+            startRenderLoop();
+            setLoading(false);
+            return;
+          }
+
+          throw new Error('Default model not found');
+        } catch (err) {
+          console.warn('Failed to load default model from backend, using fallback:', err);
+          // Fallback to hardcoded default if fetch fails
+          const defaultXML = getDefaultSceneXML();
+          const { model, data } = loadModelFromXML(mujoco, defaultXML);
+          modelRef.current = model;
+          dataRef.current = data;
+          createSceneObjects(scene, mujoco, model, data);
+        }
 
         // Start render loop
         startRenderLoop();
@@ -164,6 +252,7 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
         }
 
         // Clear scene objects
+        console.log('Clearing previous scene objects...');
         clearSceneObjects();
 
         // Load new model
@@ -173,6 +262,9 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
 
         // Create scene objects for new model
         createSceneObjects(sceneRef.current!, mujocoRef.current!, model, data);
+
+        console.log('New model loaded successfully');
+        console.log('Use debugMuJoCo.logSceneGraph() to inspect scene');
 
         setLoading(false);
         onModelLoaded?.();
@@ -266,15 +358,22 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
       mesh.castShadow = true;
       mesh.receiveShadow = true;
 
+      // Set initial position and orientation from MuJoCo
+      getPosition(model.geom_pos, g, mesh.position);
+      getQuaternion(model.geom_quat, g, mesh.quaternion);
+
+      // Apply additional rotation for plane geometry to match coordinate systems
+      // PlaneGeometry in Three.js faces Z+, but MuJoCo planes face Z+ in their local frame
+      // After converting quaternion, we need to rotate -90° around X in the mesh's local space
       if (type === mujoco.mjtGeom.mjGEOM_PLANE.value) {
-        mesh.rotateX(-Math.PI / 2);
+        const planeRotation = new THREE.Quaternion().setFromAxisAngle(
+          new THREE.Vector3(1, 0, 0),
+          -Math.PI / 2
+        );
+        mesh.quaternion.multiply(planeRotation);
       }
 
       bodies[bodyId].add(mesh);
-
-      // Set initial position and orientation
-      getPosition(model.geom_pos, g, mesh.position);
-      getQuaternion(model.geom_quat, g, mesh.quaternion);
     }
 
     // Add bodies to scene
@@ -299,7 +398,28 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
 
     const mujocoRoot = sceneRef.current.getObjectByName('MuJoCo Root');
     if (mujocoRoot) {
+      let meshCount = 0;
+      // Recursively dispose of all geometries and materials
+      mujocoRoot.traverse((object) => {
+        if (object instanceof THREE.Mesh) {
+          meshCount++;
+          if (object.geometry) {
+            object.geometry.dispose();
+          }
+          if (object.material) {
+            if (Array.isArray(object.material)) {
+              object.material.forEach((material) => material.dispose());
+            } else {
+              object.material.dispose();
+            }
+          }
+        }
+      });
+
+      console.log(`Cleared ${meshCount} meshes from scene`);
       sceneRef.current.remove(mujocoRoot);
+    } else {
+      console.log('No MuJoCo Root found to clear');
     }
 
     bodiesRef.current = {};
@@ -363,11 +483,6 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
       {error && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 z-10">
           <div className="text-red-400 text-lg">{error}</div>
-        </div>
-      )}
-      {!loading && !error && !modelXML && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-          <div className="text-gray-400 text-lg">Select a model to begin</div>
         </div>
       )}
     </div>
