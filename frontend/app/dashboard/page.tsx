@@ -132,12 +132,22 @@ export default function DashboardPage() {
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <h1 className="text-2xl font-bold text-gray-900">Motion Library</h1>
-          <button
-            onClick={logout}
-            className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
-          >
-            Logout
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.push('/visualize')}
+              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700"
+            >
+              3D Viewer
+            </button>
+            <button
+              type="button"
+              onClick={logout}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+            >
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 
