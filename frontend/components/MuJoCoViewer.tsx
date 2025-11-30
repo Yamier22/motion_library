@@ -31,6 +31,10 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
   const animationIdRef = useRef<number | null>(null);
   const isInitializedRef = useRef(false);
 
+  // Axis helper scene and camera for corner inset
+  const axisSceneRef = useRef<THREE.Scene | null>(null);
+  const axisCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,7 +127,7 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
         const width = containerRef.current!.clientWidth || window.innerWidth;
         const height = containerRef.current!.clientHeight || window.innerHeight;
 
-        // Set up camera
+        // Set up camera (MuJoCo uses Z-up, so configure camera accordingly)
         const camera = new THREE.PerspectiveCamera(
           45,
           width / height,
@@ -131,6 +135,7 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
           100
         );
         camera.position.set(2.0, 1.7, 1.7);
+        camera.up.set(0, 0, 1); // Set Z as up vector to match MuJoCo
         scene.add(camera);
         cameraRef.current = camera;
 
@@ -153,14 +158,62 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
         containerRef.current!.appendChild(renderer.domElement);
         rendererRef.current = renderer;
 
-        // Set up orbit controls
+        // Set up orbit controls (adjust target for Z-up)
         const controls = new OrbitControls(camera, renderer.domElement);
-        controls.target.set(0, 0.7, 0);
+        controls.target.set(0, 0, 0.7); // Z is up, so use Z for height
         controls.enableDamping = true;
         controls.dampingFactor = 0.1;
         controls.screenSpacePanning = true;
         controls.update();
         controlsRef.current = controls;
+
+        // Add fixed world frame axes at origin
+        const worldAxes = new THREE.AxesHelper(0.5);
+        worldAxes.name = 'World Frame';
+        scene.add(worldAxes);
+
+        // Set up axis helper scene for corner display
+        const axisScene = new THREE.Scene();
+        axisSceneRef.current = axisScene;
+
+        // Create axis camera (fixed position looking at origin)
+        const axisCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 10);
+        axisCamera.position.set(0, 0, 2);
+        axisCamera.lookAt(0, 0, 0);
+        axisCameraRef.current = axisCamera;
+
+        // Create a group to hold the axes (this will rotate with the main camera)
+        const axesGroup = new THREE.Group();
+        axesGroup.name = 'AxesGroup';
+        axisScene.add(axesGroup);
+
+        // Create axes helper (X=red, Y=green, Z=blue)
+        const axesHelper = new THREE.AxesHelper(1);
+        axesGroup.add(axesHelper);
+
+        // Add labels for axes
+        const createAxisLabel = (text: string, position: THREE.Vector3, color: number) => {
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d')!;
+          canvas.width = 64;
+          canvas.height = 64;
+          context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
+          context.font = 'Bold 48px Arial';
+          context.textAlign = 'center';
+          context.textBaseline = 'middle';
+          context.fillText(text, 32, 32);
+
+          const texture = new THREE.CanvasTexture(canvas);
+          const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+          const sprite = new THREE.Sprite(spriteMaterial);
+          sprite.position.copy(position);
+          sprite.scale.set(0.3, 0.3, 1);
+          return sprite;
+        };
+
+        axesGroup.add(createAxisLabel('X', new THREE.Vector3(1.3, 0, 0), 0xff0000));
+        axesGroup.add(createAxisLabel('Y', new THREE.Vector3(0, 1.3, 0), 0x00ff00));
+        axesGroup.add(createAxisLabel('Z', new THREE.Vector3(0, 0, 1.3), 0x0000ff));
 
         // Load default model from backend
         try {
@@ -329,10 +382,12 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
         geometry = new THREE.SphereGeometry(size[0], 20, 20);
       } else if (type === mujoco.mjtGeom.mjGEOM_CAPSULE.value) {
         geometry = new THREE.CapsuleGeometry(size[0], size[1] * 2.0, 20, 20);
+        geometry.rotateX(Math.PI / 2);
       } else if (type === mujoco.mjtGeom.mjGEOM_CYLINDER.value) {
         geometry = new THREE.CylinderGeometry(size[0], size[0], size[1] * 2.0);
+        geometry.rotateX(Math.PI / 2);
       } else if (type === mujoco.mjtGeom.mjGEOM_BOX.value) {
-        geometry = new THREE.BoxGeometry(size[0] * 2.0, size[2] * 2.0, size[1] * 2.0);
+        geometry = new THREE.BoxGeometry(size[0] * 2.0, size[1] * 2.0, size[2] * 2.0);
       } else if (type === mujoco.mjtGeom.mjGEOM_PLANE.value) {
         geometry = new THREE.PlaneGeometry(100, 100);
       } else {
@@ -368,7 +423,8 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
       if (type === mujoco.mjtGeom.mjGEOM_PLANE.value) {
         const planeRotation = new THREE.Quaternion().setFromAxisAngle(
           new THREE.Vector3(1, 0, 0),
-          -Math.PI / 2
+          // -Math.PI / 2
+          0
         );
         mesh.quaternion.multiply(planeRotation);
       }
@@ -445,7 +501,53 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
       }
 
       if (sceneRef.current && cameraRef.current && rendererRef.current) {
-        rendererRef.current.render(sceneRef.current, cameraRef.current);
+        const renderer = rendererRef.current;
+
+        // Disable autoClear to manually control clearing
+        renderer.autoClear = false;
+
+        // Clear everything first
+        renderer.clear();
+
+        // Render main scene with full viewport
+        renderer.setViewport(0, 0, renderer.domElement.clientWidth, renderer.domElement.clientHeight);
+        renderer.render(sceneRef.current, cameraRef.current);
+
+        // Render axis helper in top-right corner
+        if (axisSceneRef.current && axisCameraRef.current) {
+          const size = 128; // Size of the inset viewport in pixels
+          const margin = 10;
+
+          // Update axes group to match main camera rotation
+          const axesGroup = axisSceneRef.current.getObjectByName('AxesGroup');
+          if (axesGroup) {
+            axesGroup.quaternion.copy(cameraRef.current.quaternion).invert();
+          }
+
+          // Set viewport for inset (top-right corner)
+          const canvasWidth = renderer.domElement.clientWidth;
+          const canvasHeight = renderer.domElement.clientHeight;
+
+          renderer.clearDepth(); // Clear depth buffer for overlay
+          renderer.setScissorTest(true);
+          renderer.setScissor(
+            canvasWidth - size - margin,
+            canvasHeight - size - margin,
+            size,
+            size
+          );
+          renderer.setViewport(
+            canvasWidth - size - margin,
+            canvasHeight - size - margin,
+            size,
+            size
+          );
+
+          renderer.render(axisSceneRef.current, axisCameraRef.current);
+
+          // Reset scissor test
+          renderer.setScissorTest(false);
+        }
       }
     };
 
@@ -453,9 +555,14 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
   };
 
   // Helper functions for coordinate conversion (MuJoCo -> Three.js)
+  // Both systems now use Z-up, so we can use direct mapping
   const getPosition = (buffer: Float32Array | Float64Array, index: number, target: THREE.Vector3) => {
-    // Swizzle coordinates: MuJoCo (x,y,z) -> Three.js (x,z,-y)
-    target.set(buffer[index * 3 + 0], buffer[index * 3 + 2], -buffer[index * 3 + 1]);
+    // Direct mapping: MuJoCo (x,y,z) -> Three.js (x,y,z)
+    target.set(
+      buffer[index * 3 + 0],
+      buffer[index * 3 + 1],
+      buffer[index * 3 + 2]
+    );
   };
 
   const getQuaternion = (
@@ -463,12 +570,12 @@ export default function MuJoCoViewer({ modelXML, onModelLoaded, onError }: MuJoC
     index: number,
     target: THREE.Quaternion
   ) => {
-    // Swizzle quaternion: MuJoCo (w,x,y,z) -> Three.js (x,y,z,w) with coordinate conversion
+    // Direct mapping: MuJoCo (w,x,y,z) -> Three.js (x,y,z,w)
     target.set(
-      -buffer[index * 4 + 1],
-      -buffer[index * 4 + 3],
+      buffer[index * 4 + 1],
       buffer[index * 4 + 2],
-      -buffer[index * 4 + 0]
+      buffer[index * 4 + 3],
+      buffer[index * 4 + 0]
     );
   };
 
