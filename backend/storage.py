@@ -1,0 +1,231 @@
+import os
+import numpy as np
+from pathlib import Path
+from datetime import datetime
+from typing import List, Optional, Tuple
+import hashlib
+from models import TrajectoryMetadata, ModelMetadata
+from config import settings
+
+
+class StorageManager:
+    """Manages file system storage for trajectories and models."""
+
+    def __init__(self):
+        self.models_dir = settings.get_models_path()
+        self.trajectories_dir = settings.get_trajectories_path()
+
+        # Ensure directories exist
+        self.models_dir.mkdir(parents=True, exist_ok=True)
+        self.trajectories_dir.mkdir(parents=True, exist_ok=True)
+
+    def _get_file_id(self, filename: str) -> str:
+        """Generate a unique ID for a file."""
+        return hashlib.md5(filename.encode()).hexdigest()[:16]
+
+    def _parse_trajectory_file(self, file_path: Path) -> Tuple[Optional[int], Optional[float], Optional[int]]:
+        """Parse NPY/NPZ file to extract metadata."""
+        try:
+            if file_path.suffix == '.npz':
+                data = np.load(file_path)
+                qpos = data.get('qpos')
+                frame_rate = data.get('frame_rate', data.get('framerate'))
+
+                if qpos is not None:
+                    frame_count = qpos.shape[0] if len(qpos.shape) > 1 else len(qpos)
+                    num_joints = qpos.shape[1] if len(qpos.shape) > 1 else None
+                else:
+                    frame_count = None
+                    num_joints = None
+
+                if frame_rate is not None:
+                    frame_rate = float(frame_rate)
+
+                return frame_count, frame_rate, num_joints
+
+            elif file_path.suffix == '.npy':
+                data = np.load(file_path)
+                if len(data.shape) > 1:
+                    frame_count = data.shape[0]
+                    num_joints = data.shape[1]
+                else:
+                    frame_count = len(data)
+                    num_joints = None
+
+                return frame_count, None, num_joints
+
+        except Exception as e:
+            print(f"Error parsing trajectory file {file_path}: {e}")
+
+        return None, None, None
+
+    def list_trajectories(self, category: Optional[str] = None) -> List[TrajectoryMetadata]:
+        """List all trajectory files."""
+        trajectories = []
+
+        # Walk through trajectories directory
+        for root, dirs, files in os.walk(self.trajectories_dir):
+            rel_path = Path(root).relative_to(self.trajectories_dir)
+            current_category = str(rel_path) if str(rel_path) != '.' else None
+
+            # Filter by category if specified
+            if category and current_category != category:
+                continue
+
+            for filename in files:
+                if filename.endswith(('.npy', '.npz')):
+                    file_path = Path(root) / filename
+                    stat = file_path.stat()
+
+                    # Parse trajectory file
+                    frame_count, frame_rate, num_joints = self._parse_trajectory_file(file_path)
+
+                    trajectories.append(TrajectoryMetadata(
+                        id=self._get_file_id(str(file_path.relative_to(self.trajectories_dir))),
+                        filename=filename,
+                        category=current_category,
+                        file_size=stat.st_size,
+                        upload_date=datetime.fromtimestamp(stat.st_mtime),
+                        frame_count=frame_count,
+                        frame_rate=frame_rate,
+                        num_joints=num_joints
+                    ))
+
+        return sorted(trajectories, key=lambda x: x.upload_date, reverse=True)
+
+    def get_trajectory(self, trajectory_id: str) -> Optional[Path]:
+        """Get trajectory file path by ID."""
+        for root, dirs, files in os.walk(self.trajectories_dir):
+            for filename in files:
+                if filename.endswith(('.npy', '.npz')):
+                    file_path = Path(root) / filename
+                    rel_path = file_path.relative_to(self.trajectories_dir)
+                    if self._get_file_id(str(rel_path)) == trajectory_id:
+                        return file_path
+        return None
+
+    def save_trajectory(self, filename: str, content: bytes, category: Optional[str] = None) -> TrajectoryMetadata:
+        """Save a trajectory file."""
+        # Determine save location
+        if category:
+            save_dir = self.trajectories_dir / category
+            save_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            save_dir = self.trajectories_dir
+
+        file_path = save_dir / filename
+
+        # Write file
+        file_path.write_bytes(content)
+
+        # Get metadata
+        stat = file_path.stat()
+        frame_count, frame_rate, num_joints = self._parse_trajectory_file(file_path)
+
+        return TrajectoryMetadata(
+            id=self._get_file_id(str(file_path.relative_to(self.trajectories_dir))),
+            filename=filename,
+            category=category,
+            file_size=stat.st_size,
+            upload_date=datetime.fromtimestamp(stat.st_mtime),
+            frame_count=frame_count,
+            frame_rate=frame_rate,
+            num_joints=num_joints
+        )
+
+    def delete_trajectory(self, trajectory_id: str) -> bool:
+        """Delete a trajectory file."""
+        file_path = self.get_trajectory(trajectory_id)
+        if file_path and file_path.exists():
+            file_path.unlink()
+            return True
+        return False
+
+    def list_models(self) -> List[ModelMetadata]:
+        """List main model files (excluding component files in subdirectories)."""
+        models = []
+
+        # Scan for model directories and their main XML files
+        # Only include XML files that are direct children of model directories
+        for item in self.models_dir.iterdir():
+            if item.is_dir():
+                # This is a model directory (e.g., MS-Human-700)
+                model_dir = item
+
+                # Find XML files directly in this model directory (not in subdirs)
+                for xml_file in model_dir.glob('*.xml'):
+                    if xml_file.is_file():
+                        stat = xml_file.stat()
+                        rel_path = xml_file.relative_to(self.models_dir)
+
+                        models.append(ModelMetadata(
+                            id=self._get_file_id(str(rel_path)),
+                            filename=xml_file.name,
+                            model_name=model_dir.name,  # e.g., "MS-Human-700"
+                            relative_path=str(rel_path),
+                            file_size=stat.st_size,
+                            upload_date=datetime.fromtimestamp(stat.st_mtime)
+                        ))
+            elif item.suffix == '.xml':
+                # XML file directly in models/ root (for backward compatibility)
+                stat = item.stat()
+                models.append(ModelMetadata(
+                    id=self._get_file_id(item.name),
+                    filename=item.name,
+                    model_name=None,
+                    relative_path=item.name,
+                    file_size=stat.st_size,
+                    upload_date=datetime.fromtimestamp(stat.st_mtime)
+                ))
+
+        return sorted(models, key=lambda x: x.upload_date, reverse=True)
+
+    def get_model(self, model_id: str) -> Optional[Path]:
+        """Get model file path by ID."""
+        # Check model directories
+        for item in self.models_dir.iterdir():
+            if item.is_dir():
+                for xml_file in item.glob('*.xml'):
+                    rel_path = xml_file.relative_to(self.models_dir)
+                    if self._get_file_id(str(rel_path)) == model_id:
+                        return xml_file
+            elif item.suffix == '.xml':
+                if self._get_file_id(item.name) == model_id:
+                    return item
+        return None
+
+    def save_model(self, filename: str, content: bytes, model_name: Optional[str] = None) -> ModelMetadata:
+        """Save a model file."""
+        if model_name:
+            # Save in a model directory
+            model_dir = self.models_dir / model_name
+            model_dir.mkdir(parents=True, exist_ok=True)
+            file_path = model_dir / filename
+        else:
+            # Save directly in models root
+            file_path = self.models_dir / filename
+
+        file_path.write_bytes(content)
+        stat = file_path.stat()
+        rel_path = file_path.relative_to(self.models_dir)
+
+        return ModelMetadata(
+            id=self._get_file_id(str(rel_path)),
+            filename=filename,
+            model_name=model_name,
+            relative_path=str(rel_path),
+            file_size=stat.st_size,
+            upload_date=datetime.fromtimestamp(stat.st_mtime)
+        )
+
+    def delete_model(self, model_id: str) -> bool:
+        """Delete a model file."""
+        file_path = self.get_model(model_id)
+        if file_path and file_path.exists():
+            file_path.unlink()
+            return True
+        return False
+
+
+# Global storage manager instance
+storage = StorageManager()
