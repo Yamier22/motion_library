@@ -12,6 +12,7 @@ import {
   MuJoCoModule,
 } from '@/lib/mujoco-loader';
 import { modelApi, ModelMetadata } from '@/lib/api';
+import { getPosition, getQuaternion, loadMuJoCoScene, drawTendonsAndFlex } from '@/lib/mujoco-utils';
 
 export interface ViewerOptions {
   showFixedAxes: boolean;
@@ -37,6 +38,8 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
   const modelRef = useRef<any>(null);
   const dataRef = useRef<any>(null);
   const bodiesRef = useRef<{ [key: number]: THREE.Group }>({});
+  const meshesRef = useRef<{ [key: number]: THREE.BufferGeometry }>({});
+  const mujocoRootRef = useRef<THREE.Group | null>(null);
   const animationIdRef = useRef<number | null>(null);
   const isInitializedRef = useRef(false);
 
@@ -391,100 +394,13 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
   }, []);
 
   const createSceneObjects = (scene: THREE.Scene, mujoco: any, model: any, data: any) => {
-    const mujocoRoot = new THREE.Group();
-    mujocoRoot.name = 'MuJoCo Root';
-    scene.add(mujocoRoot);
+    // Use the utility function from mujoco-utils.ts
+    // swizzle=true for Z-up coordinate system (MuJoCo convention)
+    const { mujocoRoot, bodies, meshes } = loadMuJoCoScene(mujoco, model, data, scene, false);
 
-    const bodies: { [key: number]: THREE.Group } = {};
-
-    // Create bodies and geoms
-    for (let g = 0; g < model.ngeom; g++) {
-      // Only visualize geom groups up to 2
-      if (model.geom_group[g] >= 3) continue;
-
-      const bodyId = model.geom_bodyid[g];
-      const type = model.geom_type[g];
-      const size = [
-        model.geom_size[g * 3 + 0],
-        model.geom_size[g * 3 + 1],
-        model.geom_size[g * 3 + 2],
-      ];
-
-      // Create body group if it doesn't exist
-      if (!bodies[bodyId]) {
-        bodies[bodyId] = new THREE.Group();
-        bodies[bodyId].name = `body_${bodyId}`;
-      }
-
-      // Create geometry based on type
-      let geometry: THREE.BufferGeometry;
-
-      if (type === mujoco.mjtGeom.mjGEOM_SPHERE.value) {
-        geometry = new THREE.SphereGeometry(size[0], 20, 20);
-      } else if (type === mujoco.mjtGeom.mjGEOM_CAPSULE.value) {
-        geometry = new THREE.CapsuleGeometry(size[0], size[1] * 2.0, 20, 20);
-        geometry.rotateX(Math.PI / 2);
-      } else if (type === mujoco.mjtGeom.mjGEOM_CYLINDER.value) {
-        geometry = new THREE.CylinderGeometry(size[0], size[0], size[1] * 2.0);
-        geometry.rotateX(Math.PI / 2);
-      } else if (type === mujoco.mjtGeom.mjGEOM_BOX.value) {
-        geometry = new THREE.BoxGeometry(size[0] * 2.0, size[1] * 2.0, size[2] * 2.0);
-      } else if (type === mujoco.mjtGeom.mjGEOM_PLANE.value) {
-        geometry = new THREE.PlaneGeometry(100, 100);
-      } else {
-        // Default to sphere for unknown types
-        geometry = new THREE.SphereGeometry(size[0] * 0.5, 20, 20);
-      }
-
-      // Get color from model
-      const color = [
-        model.geom_rgba[g * 4 + 0],
-        model.geom_rgba[g * 4 + 1],
-        model.geom_rgba[g * 4 + 2],
-        model.geom_rgba[g * 4 + 3],
-      ];
-
-      const material = new THREE.MeshPhongMaterial({
-        color: new THREE.Color(color[0], color[1], color[2]),
-        transparent: color[3] < 1.0,
-        opacity: color[3],
-      });
-
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-
-      // Set initial position and orientation from MuJoCo
-      getPosition(model.geom_pos, g, mesh.position);
-      getQuaternion(model.geom_quat, g, mesh.quaternion);
-
-      // Apply additional rotation for plane geometry to match coordinate systems
-      // PlaneGeometry in Three.js faces Z+, but MuJoCo planes face Z+ in their local frame
-      // After converting quaternion, we need to rotate -90° around X in the mesh's local space
-      if (type === mujoco.mjtGeom.mjGEOM_PLANE.value) {
-        const planeRotation = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(1, 0, 0),
-          // -Math.PI / 2
-          0
-        );
-        mesh.quaternion.multiply(planeRotation);
-      }
-
-      bodies[bodyId].add(mesh);
-    }
-
-    // Add bodies to scene
-    for (let b = 0; b < model.nbody; b++) {
-      if (bodies[b]) {
-        if (b === 0 || !bodies[0]) {
-          mujocoRoot.add(bodies[b]);
-        } else {
-          bodies[0].add(bodies[b]);
-        }
-      }
-    }
-
+    mujocoRootRef.current = mujocoRoot;
     bodiesRef.current = bodies;
+    meshesRef.current = meshes;
 
     // Forward simulation once to get initial state
     mujoco.mj_forward(model, data);
@@ -532,12 +448,19 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
 
       // Update body transforms from MuJoCo data
       if (dataRef.current && modelRef.current) {
+        // swizzle=true for Z-up coordinate system
         for (let b = 0; b < modelRef.current.nbody; b++) {
           if (bodiesRef.current[b]) {
-            getPosition(dataRef.current.xpos, b, bodiesRef.current[b].position);
-            getQuaternion(dataRef.current.xquat, b, bodiesRef.current[b].quaternion);
+            getPosition(dataRef.current.xpos, b, bodiesRef.current[b].position, false);
+            getQuaternion(dataRef.current.xquat, b, bodiesRef.current[b].quaternion, false);
             bodiesRef.current[b].updateWorldMatrix(false, false);
           }
+        }
+
+        // Update tendons and flex vertices using utility function
+        // swizzle=true for Z-up coordinate system
+        if (mujocoRootRef.current) {
+          drawTendonsAndFlex(mujocoRootRef.current, modelRef.current, dataRef.current, false);
         }
       }
 
@@ -594,31 +517,6 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
     };
 
     animate();
-  };
-
-  // Helper functions for coordinate conversion (MuJoCo -> Three.js)
-  // Both systems now use Z-up, so we can use direct mapping
-  const getPosition = (buffer: Float32Array | Float64Array, index: number, target: THREE.Vector3) => {
-    // Direct mapping: MuJoCo (x,y,z) -> Three.js (x,y,z)
-    target.set(
-      buffer[index * 3 + 0],
-      buffer[index * 3 + 1],
-      buffer[index * 3 + 2]
-    );
-  };
-
-  const getQuaternion = (
-    buffer: Float32Array | Float64Array,
-    index: number,
-    target: THREE.Quaternion
-  ) => {
-    // Direct mapping: MuJoCo (w,x,y,z) -> Three.js (x,y,z,w)
-    target.set(
-      buffer[index * 4 + 1],
-      buffer[index * 4 + 2],
-      buffer[index * 4 + 3],
-      buffer[index * 4 + 0]
-    );
   };
 
   return (
