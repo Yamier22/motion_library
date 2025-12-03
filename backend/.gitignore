@@ -8,3 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Data (for local development - adjust as needed)
+data/trajectories/*
+data/models/*
+!data/trajectories/.gitkeep
+!data/models/.gitkeep

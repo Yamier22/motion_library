@@ -75,10 +75,11 @@ class StorageManager:
         """
         thumbnail_dir = self.thumbnails_dir / item_type
 
-        # Look for common image extensions
-        for ext in ['.png', '.jpg', '.gif']:
-            thumbnail_file = thumbnail_dir / f"{item_id}{ext}"
-            if thumbnail_file.exists():
+        # Look for thumbnail files recursively (thumbnails mirror directory structure)
+        # e.g., thumbnails/models/MS-Human-700/{id}.webp
+        for ext in ['.webp', '.png', '.jpg', '.gif']:
+            # Search recursively for matching thumbnail
+            for thumbnail_file in thumbnail_dir.rglob(f"{item_id}{ext}"):
                 return str(thumbnail_file.relative_to(self.base_path))
 
         return None
@@ -345,9 +346,9 @@ class StorageManager:
         """
         thumbnail_dir = self.thumbnails_dir / "models"
 
-        for ext in ['.png', '.jpg', '.gif']:
-            thumbnail_file = thumbnail_dir / f"{model_id}{ext}"
-            if thumbnail_file.exists():
+        # Search recursively for thumbnail (thumbnails mirror directory structure)
+        for ext in ['.webp', '.png', '.jpg', '.gif']:
+            for thumbnail_file in thumbnail_dir.rglob(f"{model_id}{ext}"):
                 return thumbnail_file
 
         return None
@@ -363,9 +364,9 @@ class StorageManager:
         """
         thumbnail_dir = self.thumbnails_dir / "trajectories"
 
-        for ext in ['.png', '.jpg', '.gif']:
-            thumbnail_file = thumbnail_dir / f"{trajectory_id}{ext}"
-            if thumbnail_file.exists():
+        # Search recursively for thumbnail (thumbnails mirror directory structure)
+        for ext in ['.webp', '.png', '.jpg', '.gif']:
+            for thumbnail_file in thumbnail_dir.rglob(f"{trajectory_id}{ext}"):
                 return thumbnail_file
 
         return None

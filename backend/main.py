@@ -285,9 +285,18 @@ async def get_model_thumbnail(
     if not thumbnail_path:
         raise HTTPException(status_code=404, detail="Thumbnail not found")
 
+    # Determine media type based on extension
+    media_type = "image/webp"
+    if thumbnail_path.suffix == ".png":
+        media_type = "image/png"
+    elif thumbnail_path.suffix == ".jpg":
+        media_type = "image/jpeg"
+    elif thumbnail_path.suffix == ".gif":
+        media_type = "image/gif"
+
     return FileResponse(
         path=thumbnail_path,
-        media_type="image/png",
+        media_type=media_type,
         headers={"Cache-Control": "public, max-age=3600"}
     )
 
@@ -297,13 +306,19 @@ async def get_trajectory_thumbnail(
     trajectory_id: str,
     current_user: str = Depends(get_current_user)
 ):
-    """Get thumbnail GIF for a trajectory."""
+    """Get thumbnail animation for a trajectory."""
     thumbnail_path = storage.get_trajectory_thumbnail(trajectory_id)
     if not thumbnail_path:
         raise HTTPException(status_code=404, detail="Thumbnail not found")
 
     # Determine media type based on extension
-    media_type = "image/gif" if thumbnail_path.suffix == ".gif" else "image/png"
+    media_type = "image/webp"
+    if thumbnail_path.suffix == ".gif":
+        media_type = "image/gif"
+    elif thumbnail_path.suffix == ".png":
+        media_type = "image/png"
+    elif thumbnail_path.suffix == ".jpg":
+        media_type = "image/jpeg"
 
     return FileResponse(
         path=thumbnail_path,

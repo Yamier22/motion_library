@@ -98,21 +98,21 @@ backend/
 - `DELETE /api/models/{id}` - Delete model
 
 ### Thumbnails
-- `GET /api/models/{id}/thumbnail` - Serve model thumbnail (PNG)
-- `GET /api/trajectories/{id}/thumbnail` - Serve trajectory preview (GIF)
+- `GET /api/models/{id}/thumbnail` - Serve model thumbnail (WebP)
+- `GET /api/trajectories/{id}/thumbnail` - Serve trajectory preview (WebP animation)
 
 ## Data Storage
 
 Data is stored in the file system:
 - Models: `../data/models/` (MuJoCo XML files)
 - Trajectories: `../data/trajectories/` (NPY/NPZ files)
-- Thumbnails: `../data/thumbnails/` (PNG/GIF files)
+- Thumbnails: `../data/thumbnails/` (WebP files with compression)
 
 Trajectories can be organized in subdirectories (categories).
 
 ## Thumbnail Generation
 
-The system supports visual previews for models (PNG thumbnails) and trajectories (animated GIFs). Thumbnails are automatically detected and served through the API.
+The system supports visual previews for models (WebP thumbnails) and trajectories (animated WebP). Thumbnails are automatically detected and served through the API with compression for optimal web delivery.
 
 ### Prerequisites
 
@@ -128,51 +128,95 @@ pip install mujoco Pillow imageio
 
 ### Generating Thumbnails
 
-Run the thumbnail generation script from the project root:
+**IMPORTANT:** Run the script from the `backend/` directory:
 
 ```bash
+# Navigate to backend directory
+cd backend
+
 # Generate all thumbnails (models + trajectories)
 python scripts/generate_thumbnails.py --all
 
 # Generate only model thumbnails
 python scripts/generate_thumbnails.py --models
 
-# Generate only trajectory GIFs
+# Generate only trajectory animations
 python scripts/generate_thumbnails.py --trajectories
 
-# Specify custom data directory
-python scripts/generate_thumbnails.py --all --data-dir /path/to/data
+# Generate thumbnail for a specific model
+python scripts/generate_thumbnails.py --model "MS-Human-700/MS-Human-700-MJX.xml"
+
+# Generate animation for a specific trajectory
+python scripts/generate_thumbnails.py --trajectory "locomotion/walk.npy"
+
+# Generate trajectory animation with a specific model
+python scripts/generate_thumbnails.py --trajectory "locomotion/walk.npy" --use-model "MS-Human-700/MS-Human-700-MJX.xml"
+
+# Use custom data directory (default is ../data)
+python scripts/generate_thumbnails.py --all --data-dir /custom/path/to/data
 ```
 
 ### How It Works
 
 **Model Thumbnails:**
-- Generates 160x160px PNG images
+- Generates 160x160px WebP images with 85% quality compression
 - Renders the model in its initial pose using MuJoCo
-- Saved to `data/thumbnails/models/{model_id}.png`
+- Uses programmatic camera (doesn't rely on XML camera definitions)
+- Default view: 45° azimuth, -20° elevation, 3.0 distance
+- Saved to `data/thumbnails/models/{model_folder}/{model_id}.webp`
+- Mirrors the model directory structure for organization
 - Automatically detected by backend when listing models
+- WebP format provides ~25-35% smaller file sizes vs PNG
 
-**Trajectory GIFs:**
-- Generates 160x160px animated GIFs
+**Trajectory Animations:**
+- Generates 160x160px animated WebP files with 85% quality compression
 - Samples 30 frames evenly across the trajectory
 - Plays at 10 fps (100ms per frame)
-- Saved to `data/thumbnails/trajectories/{trajectory_id}.gif`
+- Uses same programmatic camera as model thumbnails
+- Saved to `data/thumbnails/trajectories/{category}/{trajectory_id}.webp`
+- Mirrors the trajectory directory structure for organization
 - Automatically detected by backend when listing trajectories
+- WebP animation provides better compression than GIF with higher quality
+
+**Camera Configuration:**
+The script creates its own camera programmatically instead of using cameras defined in XML files. This ensures thumbnails are generated consistently even for models without camera definitions. You can adjust the camera settings by editing the configuration constants at the top of `scripts/generate_thumbnails.py`:
+```python
+MODEL_CAMERA_DISTANCE = 3.0  # Distance from model
+CAMERA_AZIMUTH = 45  # Horizontal rotation angle in degrees
+CAMERA_ELEVATION = -20  # Vertical angle (negative = looking down)
+CAMERA_LOOKAT = [0, 0, 1]  # Point to look at [x, y, z]
+```
 
 **ID Matching:**
-The script uses the same MD5 hash algorithm as the backend to generate IDs, ensuring thumbnails are correctly associated with their models/trajectories.
+The script uses the same MD5 hash algorithm as the backend to generate IDs, ensuring thumbnails are correctly associated with their models/trajectories. The MD5 hash is computed from the **relative path** from the models/ or trajectories/ directory (e.g., `"MS-Human-700/MS-Human-700-MJX.xml"`), guaranteeing consistency regardless of where the script is run from.
 
 ### Thumbnail Storage Structure
 
+Thumbnails mirror the directory structure of models and trajectories:
+
 ```
 data/
+├── models/
+│   ├── MS-Human-700/
+│   │   └── MS-Human-700-MJX.xml
+│   └── another-model/
+│       └── model.xml
+├── trajectories/
+│   ├── locomotion/
+│   │   └── walk.npy
+│   └── manipulation/
+│       └── grasp.npy
 └── thumbnails/
     ├── models/
-    │   ├── a1b2c3d4e5f6g7h8.png
-    │   └── i9j0k1l2m3n4o5p6.png
+    │   ├── MS-Human-700/
+    │   │   └── a1b2c3d4e5f6g7h8.webp  # Thumbnail for MS-Human-700-MJX.xml
+    │   └── another-model/
+    │       └── i9j0k1l2m3n4o5p6.webp  # Thumbnail for model.xml
     └── trajectories/
-        ├── q7r8s9t0u1v2w3x4.gif
-        └── y5z6a7b8c9d0e1f2.gif
+        ├── locomotion/
+        │   └── q7r8s9t0u1v2w3x4.webp  # Animation for walk.npy
+        └── manipulation/
+            └── y5z6a7b8c9d0e1f2.webp  # Animation for grasp.npy
 ```
 
 ### Troubleshooting
