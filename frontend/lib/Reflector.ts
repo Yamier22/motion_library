@@ -231,7 +231,11 @@ export class Reflector extends Mesh {
       renderTarget.dispose();
     }
     if (this.material) {
-      this.material.dispose();
+      if (Array.isArray(this.material)) {
+        this.material.forEach(m => m.dispose());
+      } else {
+        this.material.dispose();
+      }
     }
   }
 }
