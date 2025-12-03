@@ -218,9 +218,10 @@ After=network.target
 Type=simple
 User=motion-library
 Group=motion-library
-WorkingDirectory=/opt/motion-library/frontend
-Environment="PATH=/usr/bin:/usr/local/bin"
+WorkingDirectory=/home/motion-library/motion_library/frontend
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
 Environment="NODE_ENV=production"
+Environment="PORT=8080"
 ExecStart=/usr/bin/npm run start
 Restart=always
 RestartSec=10
@@ -228,6 +229,8 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 ```
+
+**Note:** The default port is 3000. To use a different port (e.g., 8080, 3001, 8000), add the `Environment="PORT=8080"` line as shown above. Choose a port number above 1024 to avoid requiring root privileges.
 
 Enable and start the service:
 
@@ -237,6 +240,33 @@ sudo systemctl enable motion-library-frontend
 sudo systemctl start motion-library-frontend
 sudo systemctl status motion-library-frontend
 ```
+
+### Troubleshooting the Service
+
+If the service fails to start, use these commands to diagnose:
+
+**View recent logs:**
+```bash
+sudo journalctl -u motion-library-frontend.service -n 50
+```
+
+**View logs with real-time updates:**
+```bash
+sudo journalctl -u motion-library-frontend.service -f
+```
+
+**View detailed error information:**
+```bash
+sudo journalctl -u motion-library-frontend.service -xe
+```
+
+**Common issues:**
+
+1. **"spawn sh ENOENT" error**: Make sure the `PATH` environment variable includes `/bin` and the `WorkingDirectory` points to the correct location
+2. **Permission errors**: Ensure the `motion-library` user has access to the frontend directory
+3. **Port already in use**: Check if another process is using the port with `sudo lsof -i :8080` (replace 8080 with your configured port)
+4. **Missing dependencies**: Verify that `npm install` was run in the frontend directory
+5. **Low port restrictions**: Ports below 1024 require root privileges. Use ports 1024 or higher (e.g., 3000, 8080, 8000)
 
 ## Reverse Proxy Configuration
 
