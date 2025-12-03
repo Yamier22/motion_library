@@ -16,6 +16,7 @@
     "npyjs": "^1.0.4",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "react-grab": "^0.0.59",
     "three": "^0.181.2"
   },
   "devDependencies": {

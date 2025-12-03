@@ -13,7 +13,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      router.push('/dashboard');
+      router.push('/visualize');
     }
   }, [isAuthenticated, isLoading, router]);
 

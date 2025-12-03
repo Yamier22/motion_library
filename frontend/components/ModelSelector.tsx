@@ -8,11 +8,17 @@ interface ModelSelectorProps {
   selectedModelId?: string;
 }
 
+interface FolderGroup {
+  folderName: string;
+  models: ModelMetadata[];
+}
+
 export default function ModelSelector({ onModelSelect, selectedModelId }: ModelSelectorProps) {
   const [models, setModels] = useState<ModelMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadingModelId, setLoadingModelId] = useState<string | null>(null);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadModels();
@@ -50,10 +56,44 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
     }
   };
 
+  const toggleFolder = (folderName: string) => {
+    setCollapsedFolders((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(folderName)) {
+        newSet.delete(folderName);
+      } else {
+        newSet.add(folderName);
+      }
+      return newSet;
+    });
+  };
+
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  // Group models by folder
+  const groupModelsByFolder = (): FolderGroup[] => {
+    const folderMap = new Map<string, ModelMetadata[]>();
+
+    models.forEach((model) => {
+      // Extract folder name from relative_path
+      // e.g., "MS-Human-700/model.xml" -> "MS-Human-700"
+      const pathParts = model.relative_path.split('/');
+      const folderName = pathParts.length > 1 ? pathParts[0] : 'Root';
+
+      if (!folderMap.has(folderName)) {
+        folderMap.set(folderName, []);
+      }
+      folderMap.get(folderName)!.push(model);
+    });
+
+    // Convert to array and sort by folder name
+    return Array.from(folderMap.entries())
+      .map(([folderName, models]) => ({ folderName, models }))
+      .sort((a, b) => a.folderName.localeCompare(b.folderName));
   };
 
   if (loading) {
@@ -71,6 +111,7 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
         <h3 className="text-lg font-semibold mb-4 text-gray-200">Models</h3>
         <div className="text-red-400 text-sm">{error}</div>
         <button
+          type="button"
           onClick={loadModels}
           className="mt-2 text-blue-400 hover:text-blue-300 text-sm"
         >
@@ -79,6 +120,8 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
       </div>
     );
   }
+
+  const folderGroups = groupModelsByFolder();
 
   return (
     <div className="p-4">
@@ -93,43 +136,87 @@ export default function ModelSelector({ onModelSelect, selectedModelId }: ModelS
       {models.length === 0 ? (
         <div className="text-gray-400 text-sm">No models available</div>
       ) : (
-        <div className="space-y-2">
-          {models.map((model) => {
-            const isSelected = model.id === selectedModelId;
-            const isLoading = model.id === loadingModelId;
+        <div className="space-y-3">
+          {folderGroups.map((group) => {
+            const isCollapsed = collapsedFolders.has(group.folderName);
 
             return (
-              <button
-                key={model.id}
-                onClick={() => handleModelClick(model)}
-                disabled={isLoading}
-                className={`
-                  w-full text-left p-3 rounded transition-colors
-                  ${
-                    isSelected
-                      ? 'bg-blue-600 bg-opacity-30 border border-blue-500'
-                      : 'bg-gray-700 hover:bg-gray-600 border border-transparent'
-                  }
-                  ${isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'}
-                `}
-              >
-                <div className="flex flex-col gap-1">
-                  {model.model_name && (
-                    <div className="text-xs text-gray-400 font-medium">
-                      {model.model_name}
-                    </div>
-                  )}
-                  <div className="text-sm text-gray-200 font-medium">
-                    {model.filename}
+              <div key={group.folderName} className="space-y-2">
+                {/* Folder Header */}
+                <button
+                  type="button"
+                  onClick={() => toggleFolder(group.folderName)}
+                  className="w-full flex items-center gap-2 p-2 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                >
+                  {/* Arrow icon */}
+                  <svg
+                    className={`w-4 h-4 text-gray-400 transition-transform ${
+                      isCollapsed ? '-rotate-90' : ''
+                    }`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                  <span className="text-sm font-medium text-gray-200">
+                    {group.folderName}
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    ({group.models.length})
+                  </span>
+                </button>
+
+                {/* Models in folder */}
+                {!isCollapsed && (
+                  <div className="pl-6 space-y-2">
+                    {group.models.map((model) => {
+                      const isSelected = model.id === selectedModelId;
+                      const isLoading = model.id === loadingModelId;
+
+                      return (
+                        <button
+                          key={model.id}
+                          type="button"
+                          onClick={() => handleModelClick(model)}
+                          disabled={isLoading}
+                          className={`
+                            w-full text-left p-3 rounded transition-colors
+                            ${
+                              isSelected
+                                ? 'bg-blue-600 bg-opacity-30 border border-blue-500'
+                                : 'bg-gray-700 hover:bg-gray-600 border border-transparent'
+                            }
+                            ${isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'}
+                          `}
+                        >
+                          <div className="flex flex-col gap-1">
+                            {model.model_name && (
+                              <div className="text-xs text-gray-400 font-medium">
+                                {model.model_name}
+                              </div>
+                            )}
+                            <div className="text-sm text-gray-200 font-medium">
+                              {model.filename}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              {formatFileSize(model.file_size)}
+                            </div>
+                          </div>
+                          {isLoading && (
+                            <div className="mt-2 text-xs text-blue-400">Loading...</div>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="text-xs text-gray-400">
-                    {formatFileSize(model.file_size)}
-                  </div>
-                </div>
-                {isLoading && (
-                  <div className="mt-2 text-xs text-blue-400">Loading...</div>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>

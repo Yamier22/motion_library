@@ -8,6 +8,11 @@ interface TrajectorySelectorProps {
   selectedTrajectoryId?: string;
 }
 
+interface CategoryGroup {
+  categoryName: string;
+  trajectories: TrajectoryMetadata[];
+}
+
 export default function TrajectorySelector({
   onTrajectorySelect,
   selectedTrajectoryId,
@@ -16,6 +21,7 @@ export default function TrajectorySelector({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadingTrajectoryId, setLoadingTrajectoryId] = useState<string | null>(null);
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadTrajectories();
@@ -57,10 +63,41 @@ export default function TrajectorySelector({
     }
   };
 
+  const toggleCategory = (categoryName: string) => {
+    setCollapsedCategories((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(categoryName)) {
+        newSet.delete(categoryName);
+      } else {
+        newSet.add(categoryName);
+      }
+      return newSet;
+    });
+  };
+
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  // Group trajectories by category
+  const groupTrajectories = (): CategoryGroup[] => {
+    const categoryMap = new Map<string, TrajectoryMetadata[]>();
+
+    trajectories.forEach((trajectory) => {
+      const categoryName = trajectory.category || 'Uncategorized';
+
+      if (!categoryMap.has(categoryName)) {
+        categoryMap.set(categoryName, []);
+      }
+      categoryMap.get(categoryName)!.push(trajectory);
+    });
+
+    // Convert to array and sort by category name
+    return Array.from(categoryMap.entries())
+      .map(([categoryName, trajectories]) => ({ categoryName, trajectories }))
+      .sort((a, b) => a.categoryName.localeCompare(b.categoryName));
   };
 
   if (loading) {
@@ -78,6 +115,7 @@ export default function TrajectorySelector({
         <h3 className="text-lg font-semibold mb-4 text-gray-200">Trajectories</h3>
         <div className="text-red-400 text-sm">{error}</div>
         <button
+          type="button"
           onClick={loadTrajectories}
           className="mt-2 text-blue-400 hover:text-blue-300 text-sm"
         >
@@ -86,6 +124,8 @@ export default function TrajectorySelector({
       </div>
     );
   }
+
+  const categoryGroups = groupTrajectories();
 
   return (
     <div className="p-4">
@@ -100,45 +140,84 @@ export default function TrajectorySelector({
       {trajectories.length === 0 ? (
         <div className="text-gray-400 text-sm">No trajectories available</div>
       ) : (
-        <div className="space-y-2">
-          {trajectories.map((trajectory) => {
-            const isSelected = trajectory.id === selectedTrajectoryId;
-            const isLoading = trajectory.id === loadingTrajectoryId;
+        <div className="space-y-3">
+          {categoryGroups.map((group) => {
+            const isCollapsed = collapsedCategories.has(group.categoryName);
 
             return (
-              <button
-                key={trajectory.id}
-                onClick={() => handleTrajectoryClick(trajectory)}
-                disabled={isLoading}
-                className={`
-                  w-full text-left p-3 rounded transition-colors
-                  ${
-                    isSelected
-                      ? 'bg-blue-600 bg-opacity-30 border border-blue-500'
-                      : 'bg-gray-700 hover:bg-gray-600 border border-transparent'
-                  }
-                  ${isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'}
-                `}
-              >
-                <div className="flex flex-col gap-1">
-                  {trajectory.category && (
-                    <div className="text-xs text-gray-400 font-medium">
-                      {trajectory.category}
-                    </div>
-                  )}
-                  <div className="text-sm text-gray-200 font-medium">
-                    {trajectory.filename}
+              <div key={group.categoryName} className="space-y-2">
+                {/* Category Header */}
+                <button
+                  type="button"
+                  onClick={() => toggleCategory(group.categoryName)}
+                  className="w-full flex items-center gap-2 p-2 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+                >
+                  {/* Arrow icon */}
+                  <svg
+                    className={`w-4 h-4 text-gray-400 transition-transform ${
+                      isCollapsed ? '-rotate-90' : ''
+                    }`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                  <span className="text-sm font-medium text-gray-200">
+                    {group.categoryName}
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    ({group.trajectories.length})
+                  </span>
+                </button>
+
+                {/* Trajectories in category */}
+                {!isCollapsed && (
+                  <div className="pl-6 space-y-2">
+                    {group.trajectories.map((trajectory) => {
+                      const isSelected = trajectory.id === selectedTrajectoryId;
+                      const isLoading = trajectory.id === loadingTrajectoryId;
+
+                      return (
+                        <button
+                          key={trajectory.id}
+                          type="button"
+                          onClick={() => handleTrajectoryClick(trajectory)}
+                          disabled={isLoading}
+                          className={`
+                            w-full text-left p-3 rounded transition-colors
+                            ${
+                              isSelected
+                                ? 'bg-blue-600 bg-opacity-30 border border-blue-500'
+                                : 'bg-gray-700 hover:bg-gray-600 border border-transparent'
+                            }
+                            ${isLoading ? 'opacity-50 cursor-wait' : 'cursor-pointer'}
+                          `}
+                        >
+                          <div className="flex flex-col gap-1">
+                            <div className="text-sm text-gray-200 font-medium">
+                              {trajectory.filename}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              {formatFileSize(trajectory.file_size)}
+                              {trajectory.frame_count && ` • ${trajectory.frame_count} frames`}
+                              {trajectory.frame_rate && ` • ${trajectory.frame_rate} fps`}
+                            </div>
+                          </div>
+                          {isLoading && (
+                            <div className="mt-2 text-xs text-blue-400">Loading...</div>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="text-xs text-gray-400">
-                    {formatFileSize(trajectory.file_size)}
-                    {trajectory.frame_count && ` • ${trajectory.frame_count} frames`}
-                    {trajectory.frame_rate && ` • ${trajectory.frame_rate} fps`}
-                  </div>
-                </div>
-                {isLoading && (
-                  <div className="mt-2 text-xs text-blue-400">Loading...</div>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>

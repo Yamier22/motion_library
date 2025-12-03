@@ -198,28 +198,31 @@ export default function VisualizePage() {
       <header className="bg-gray-800 shadow flex-shrink-0">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="text-gray-300 hover:text-white"
-            >
-              ← Back
-            </button>
             <h1 className="text-xl font-bold text-white">Motion Library Visualization</h1>
           </div>
-          <div className="text-sm text-gray-400 flex items-center gap-4">
-            {selectedModel && (
-              <div>
-                {selectedModel.model_name && (
-                  <span className="mr-2">{selectedModel.model_name}</span>
-                )}
-                <span>{selectedModel.filename}</span>
-              </div>
-            )}
-            {trajectoryData && (
-              <div className="text-gray-500">
-                {trajectoryData.frameCount} frames @ {trajectoryData.frameRate} fps
-              </div>
-            )}
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-gray-400 flex items-center gap-4">
+              {selectedModel && (
+                <div>
+                  {selectedModel.model_name && (
+                    <span className="mr-2">{selectedModel.model_name}</span>
+                  )}
+                  <span>{selectedModel.filename}</span>
+                </div>
+              )}
+              {trajectoryData && (
+                <div className="text-gray-500">
+                  {trajectoryData.frameCount} frames @ {trajectoryData.frameRate} fps
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push('/dashboard')}
+              className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors text-sm font-medium"
+            >
+              Dashboard
+            </button>
           </div>
         </div>
       </header>
