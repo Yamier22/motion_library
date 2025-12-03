@@ -122,6 +122,59 @@ export default function VisualizePage() {
     setPlaybackSpeed(speed);
   };
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) {
+        return;
+      }
+
+      switch (e.key) {
+        case ' ': // Space - Play/Pause
+          e.preventDefault();
+          handlePlayPause();
+          break;
+        case 'r':
+        case 'R': // R - Reset
+          e.preventDefault();
+          handleReset();
+          break;
+        case 'ArrowLeft': // Left - Step back 1 second
+          e.preventDefault();
+          if (trajectoryData) {
+            const newFrame = Math.max(0, currentFrame - trajectoryData.frameRate);
+            handleFrameChange(newFrame);
+          }
+          break;
+        case 'ArrowRight': // Right - Step forward 1 second
+          e.preventDefault();
+          if (trajectoryData) {
+            const newFrame = Math.min(trajectoryData.frameCount - 1, currentFrame + trajectoryData.frameRate);
+            handleFrameChange(newFrame);
+          }
+          break;
+        case 'ArrowUp': // Up - Step forward 1 frame
+          e.preventDefault();
+          if (trajectoryData) {
+            const newFrame = Math.min(trajectoryData.frameCount - 1, Math.floor(currentFrame) + 1);
+            handleFrameChange(newFrame);
+          }
+          break;
+        case 'ArrowDown': // Down - Step back 1 frame
+          e.preventDefault();
+          if (trajectoryData) {
+            const newFrame = Math.max(0, Math.floor(currentFrame) - 1);
+            handleFrameChange(newFrame);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [playing, currentFrame, trajectoryData]);
+
   // Prepare trajectory playback state for the viewer (must be before any returns)
   const trajectoryPlaybackState: TrajectoryPlaybackState | undefined = trajectoryData
     ? {
@@ -231,6 +284,109 @@ export default function VisualizePage() {
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Sidebar */}
         <div className="w-80 bg-gray-800 border-r border-gray-700 overflow-y-auto flex-shrink-0">
+          {/* Playback Controls - Always visible */}
+          <div className="border-b border-gray-700 bg-gray-750">
+            <div className="p-4">
+              <h3 className="text-sm font-semibold text-white mb-3">Playback Controls</h3>
+
+              {/* Timeline Slider */}
+              <div className="mb-4">
+                <label htmlFor="timeline-slider" className="block text-xs font-medium text-gray-300 mb-2">Timeline</label>
+                <input
+                  id="timeline-slider"
+                  type="range"
+                  min="0"
+                  max={trajectoryData ? trajectoryData.frameCount - 1 : 0}
+                  value={trajectoryData ? Math.floor(currentFrame) : 0}
+                  onChange={(e) => handleFrameChange(parseInt(e.target.value))}
+                  disabled={!trajectoryData}
+                  aria-label="Timeline scrubber"
+                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  <span>{trajectoryData ? (currentFrame / trajectoryData.frameRate).toFixed(2) : '0.00'}s</span>
+                  <span>Frame {trajectoryData ? Math.floor(currentFrame) + 1 : 0} / {trajectoryData ? trajectoryData.frameCount : 0}</span>
+                  <span>{trajectoryData ? (trajectoryData.frameCount / trajectoryData.frameRate).toFixed(2) : '0.00'}s</span>
+                </div>
+              </div>
+
+              {/* Control Buttons */}
+              <div className="flex flex-col gap-2 mb-4">
+                <button
+                  type="button"
+                  onClick={handlePlayPause}
+                  disabled={!trajectoryData}
+                  className="w-full px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-600"
+                >
+                  {playing ? 'Pause' : 'Play'}
+                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleReset}
+                    disabled={!trajectoryData}
+                    className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => trajectoryData && handleFrameChange(Math.min(currentFrame + 1, trajectoryData.frameCount - 1))}
+                    disabled={!trajectoryData}
+                    className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Step →
+                  </button>
+                </div>
+              </div>
+
+              {/* Speed Control */}
+              <div className="mb-4">
+                <label htmlFor="playback-speed" className="block text-xs font-medium text-gray-300 mb-2">
+                  Playback Speed
+                </label>
+                <select
+                  id="playback-speed"
+                  value={playbackSpeed}
+                  onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
+                  disabled={!trajectoryData}
+                  aria-label="Playback speed"
+                  className="w-full px-3 py-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <option value={0.25}>0.25x</option>
+                  <option value={0.5}>0.5x</option>
+                  <option value={1}>1x</option>
+                  <option value={1.5}>1.5x</option>
+                  <option value={2}>2x</option>
+                </select>
+              </div>
+
+              {/* Keyboard Shortcuts Guide */}
+              <div className="mt-4 pt-4 border-t border-gray-700">
+                <h4 className="text-xs font-semibold text-gray-300 mb-2">Keyboard Shortcuts</h4>
+                <div className="space-y-1 text-xs text-gray-400">
+                  <div className="flex justify-between">
+                    <span>Play/Pause</span>
+                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">Space</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Reset</span>
+                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">R</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>±1 second</span>
+                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">← →</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>±1 frame</span>
+                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">↑ ↓</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Models Section */}
           <div className="border-b border-gray-700">
             <ModelSelector
@@ -246,79 +402,6 @@ export default function VisualizePage() {
               selectedTrajectoryId={selectedTrajectory?.id}
             />
           </div>
-
-          {/* Playback Controls - Only show when trajectory is loaded */}
-          {trajectoryData && (
-            <div className="border-b border-gray-700">
-              <div className="p-4">
-                <h3 className="text-sm font-semibold text-white mb-3">Playback Controls</h3>
-
-                {/* Timeline Slider */}
-                <div className="mb-4">
-                  <label className="block text-xs font-medium text-gray-300 mb-2">Timeline</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max={trajectoryData.frameCount - 1}
-                    value={Math.floor(currentFrame)}
-                    onChange={(e) => handleFrameChange(parseInt(e.target.value))}
-                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <div className="flex justify-between text-xs text-gray-400 mt-1">
-                    <span>{(currentFrame / trajectoryData.frameRate).toFixed(2)}s</span>
-                    <span>Frame {Math.floor(currentFrame) + 1} / {trajectoryData.frameCount}</span>
-                    <span>{(trajectoryData.frameCount / trajectoryData.frameRate).toFixed(2)}s</span>
-                  </div>
-                </div>
-
-                {/* Control Buttons */}
-                <div className="flex flex-col gap-2 mb-4">
-                  <button
-                    type="button"
-                    onClick={handlePlayPause}
-                    className="w-full px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors"
-                  >
-                    {playing ? 'Pause' : 'Play'}
-                  </button>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={handleReset}
-                      className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors text-sm"
-                    >
-                      Reset
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleFrameChange(Math.min(currentFrame + 1, trajectoryData.frameCount - 1))}
-                      className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors text-sm"
-                    >
-                      Step →
-                    </button>
-                  </div>
-                </div>
-
-                {/* Speed Control */}
-                <div className="mb-4">
-                  <label className="block text-xs font-medium text-gray-300 mb-2">
-                    Playback Speed
-                  </label>
-                  <select
-                    value={playbackSpeed}
-                    onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
-                    className="w-full px-3 py-2 rounded-lg bg-gray-700 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    <option value={0.25}>0.25x</option>
-                    <option value={0.5}>0.5x</option>
-                    <option value={1}>1x</option>
-                    <option value={1.5}>1.5x</option>
-                    <option value={2}>2x</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Viewer Options Section */}
           <div className="border-b border-gray-700">
