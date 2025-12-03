@@ -36,17 +36,22 @@ export default function TrajectorySelector({
   };
 
   const handleTrajectoryClick = async (trajectory: TrajectoryMetadata) => {
+    console.log('[TRAJECTORY SELECTOR] Trajectory clicked:', trajectory.filename);
     try {
       setLoadingTrajectoryId(trajectory.id);
       setError(null);
 
+      console.log('[TRAJECTORY SELECTOR] Fetching trajectory file from API...');
       // Fetch the trajectory data file
       const blob = await trajectoryApi.get(trajectory.id);
+      console.log('[TRAJECTORY SELECTOR] Blob received:', { size: blob.size, type: blob.type });
 
+      console.log('[TRAJECTORY SELECTOR] Calling onTrajectorySelect callback...');
       onTrajectorySelect(blob, trajectory);
+      console.log('[TRAJECTORY SELECTOR] Callback completed');
     } catch (err) {
       setError('Failed to load trajectory file');
-      console.error('Error loading trajectory file:', err);
+      console.error('[TRAJECTORY SELECTOR] Error loading trajectory file:', err);
     } finally {
       setLoadingTrajectoryId(null);
     }

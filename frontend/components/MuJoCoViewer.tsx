@@ -19,16 +19,25 @@ export interface ViewerOptions {
   showMovingAxes: boolean;
 }
 
+export interface TrajectoryPlaybackState {
+  qpos: Float64Array[];  // Array of qpos arrays, one per frame
+  currentFrame: number;
+  isPlaying: boolean;
+  playbackSpeed: number;
+  frameRate: number;
+}
+
 interface MuJoCoViewerProps {
   modelXML?: string;
   modelId?: string;
   modelMetadata?: ModelMetadata;
   options?: ViewerOptions;
+  trajectory?: TrajectoryPlaybackState;
   onModelLoaded?: () => void;
   onError?: (error: string) => void;
 }
 
-export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options, onModelLoaded, onError }: MuJoCoViewerProps) {
+export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options, trajectory, onModelLoaded, onError }: MuJoCoViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -43,12 +52,30 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
   const animationIdRef = useRef<number | null>(null);
   const isInitializedRef = useRef(false);
 
+  // Track trajectory prop in a ref so animation loop can access latest value
+  const trajectoryRef = useRef<TrajectoryPlaybackState | undefined>(trajectory);
+
   // Axis helper scene and camera for corner inset
   const axisSceneRef = useRef<THREE.Scene | null>(null);
   const axisCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Update trajectory ref whenever prop changes
+  useEffect(() => {
+    trajectoryRef.current = trajectory;
+    if (trajectory) {
+      console.log('[MUJOCO VIEWER] Trajectory prop updated in ref:', {
+        hasQpos: !!trajectory.qpos,
+        qposLength: trajectory.qpos?.length,
+        currentFrame: trajectory.currentFrame,
+        isPlaying: trajectory.isPlaying
+      });
+    } else {
+      console.log('[MUJOCO VIEWER] Trajectory prop cleared (undefined)');
+    }
+  }, [trajectory]);
 
   // Debug helper - expose scene to window for debugging
   useEffect(() => {
@@ -446,19 +473,101 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
         controlsRef.current.update();
       }
 
+      // Use trajectoryRef.current to get the latest trajectory value
+      const currentTrajectory = trajectoryRef.current;
+
+      // Debug: Log trajectory prop on every frame (will be very verbose)
+      if (currentTrajectory) {
+        console.log('[DEBUG] Trajectory prop received:', {
+          hasQpos: !!currentTrajectory.qpos,
+          qposLength: currentTrajectory.qpos?.length,
+          currentFrame: currentTrajectory.currentFrame,
+          isPlaying: currentTrajectory.isPlaying
+        });
+      } else {
+        console.log('[DEBUG] No trajectory prop');
+      }
+
+      // Handle trajectory playback if trajectory data is provided
+      if (currentTrajectory && currentTrajectory.qpos.length > 0) {
+        if (!dataRef.current || !modelRef.current || !mujocoRef.current) {
+          // Model not loaded yet
+          if (currentTrajectory.currentFrame === 0) {
+            console.warn('Trajectory data provided but model not loaded yet');
+          }
+        } else {
+          const currentFrame = Math.min(currentTrajectory.currentFrame, currentTrajectory.qpos.length - 1);
+          const qposData = currentTrajectory.qpos[currentFrame];
+
+          // Set qpos data for current frame
+          if (qposData && qposData.length === modelRef.current.nq) {
+            console.log(`[TRAJECTORY] Applying frame ${currentFrame}`);
+
+            // Store original qpos for comparison
+            const originalQpos0 = dataRef.current.qpos[0];
+            const originalXpos = [dataRef.current.xpos[3], dataRef.current.xpos[4], dataRef.current.xpos[5]];
+
+            // Copy qpos data to MuJoCo's qpos array
+            for (let i = 0; i < qposData.length; i++) {
+              dataRef.current.qpos[i] = qposData[i];
+            }
+
+            console.log(`[MUJOCO] Before mj_forward: qpos[0] changed from ${originalQpos0.toFixed(3)} to ${dataRef.current.qpos[0].toFixed(3)}`);
+
+            // Compute forward kinematics to update xpos and xquat from qpos
+            mujocoRef.current.mj_forward(modelRef.current, dataRef.current);
+
+            const newXpos = [dataRef.current.xpos[3], dataRef.current.xpos[4], dataRef.current.xpos[5]];
+            console.log(`[MUJOCO] After mj_forward: xpos changed from [${originalXpos.map(v => v.toFixed(3)).join(', ')}] to [${newXpos.map(v => v.toFixed(3)).join(', ')}]`);
+
+            // Log every 30 frames
+            if (currentFrame % 30 === 0 && currentFrame > 0) {
+              console.log(`[SUMMARY] Frame ${currentFrame}: qpos[0-2] = [${dataRef.current.qpos[0].toFixed(3)}, ${dataRef.current.qpos[1].toFixed(3)}, ${dataRef.current.qpos[2].toFixed(3)}], body[1] xpos = [${newXpos.map(v => v.toFixed(3)).join(', ')}]`);
+            }
+          } else if (qposData) {
+            console.warn(`Qpos dimension mismatch: trajectory has ${qposData.length} but model expects ${modelRef.current.nq}`);
+          }
+        }
+      }
+
       // Update body transforms from MuJoCo data
       if (dataRef.current && modelRef.current) {
-        // swizzle=true for Z-up coordinate system
+        // Log when updating Three.js transforms (only when trajectory is active)
+        if (currentTrajectory && currentTrajectory.qpos.length > 0) {
+          if (bodiesRef.current[1]) {
+            const beforePos = bodiesRef.current[1].position.clone();
+            console.log(`[THREE.JS] Before update: body[1] position = [${beforePos.x.toFixed(3)}, ${beforePos.y.toFixed(3)}, ${beforePos.z.toFixed(3)}]`);
+          }
+        }
+
+        // swizzle=false for Y-up coordinate system (MuJoCo native)
         for (let b = 0; b < modelRef.current.nbody; b++) {
           if (bodiesRef.current[b]) {
+            // Store old position for comparison
+            const oldPos = bodiesRef.current[b].position.clone();
+
             getPosition(dataRef.current.xpos, b, bodiesRef.current[b].position, false);
             getQuaternion(dataRef.current.xquat, b, bodiesRef.current[b].quaternion, false);
             bodiesRef.current[b].updateWorldMatrix(false, false);
+
+            // Log body 1 position changes when trajectory is active
+            if (b === 1 && currentTrajectory && currentTrajectory.qpos.length > 0) {
+              const newPos = bodiesRef.current[b].position;
+              console.log(`[THREE.JS] Body[1] position updated: [${oldPos.x.toFixed(3)}, ${oldPos.y.toFixed(3)}, ${oldPos.z.toFixed(3)}] -> [${newPos.x.toFixed(3)}, ${newPos.y.toFixed(3)}, ${newPos.z.toFixed(3)}]`);
+            }
+          }
+        }
+
+        // Log Three.js body position to verify it's updating (only when trajectory is active)
+        if (currentTrajectory && currentTrajectory.qpos.length > 0 && currentTrajectory.currentFrame % 30 === 0 && currentTrajectory.currentFrame > 0) {
+          if (bodiesRef.current[1]) {
+            const pos = bodiesRef.current[1].position;
+            console.log(`[SUMMARY] Frame ${currentTrajectory.currentFrame}: Three.js body[1] pos = [${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}]`);
           }
         }
 
         // Update tendons and flex vertices using utility function
-        // swizzle=true for Z-up coordinate system
+        // swizzle=false for Y-up coordinate system (MuJoCo native)
         if (mujocoRootRef.current) {
           drawTendonsAndFlex(mujocoRootRef.current, modelRef.current, dataRef.current, false);
         }
@@ -473,9 +582,18 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
         // Clear everything first
         renderer.clear();
 
+        // Log rendering when trajectory is active
+        if (currentTrajectory && currentTrajectory.qpos.length > 0 && currentTrajectory.currentFrame % 30 === 0 && currentTrajectory.currentFrame > 0) {
+          console.log(`[RENDER] Rendering frame ${currentTrajectory.currentFrame}`);
+        }
+
         // Render main scene with full viewport
         renderer.setViewport(0, 0, renderer.domElement.clientWidth, renderer.domElement.clientHeight);
         renderer.render(sceneRef.current, cameraRef.current);
+
+        if (currentTrajectory && currentTrajectory.qpos.length > 0 && currentTrajectory.currentFrame % 30 === 0 && currentTrajectory.currentFrame > 0) {
+          console.log(`[RENDER] Frame ${currentTrajectory.currentFrame} rendered`);
+        }
 
         // Render axis helper in top-right corner (if enabled)
         const showMoving = options?.showMovingAxes ?? true;

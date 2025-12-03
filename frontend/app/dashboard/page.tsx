@@ -306,12 +306,7 @@ export default function DashboardPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button
-                          onClick={() => router.push(`/visualize/${trajectory.id}`)}
-                          className="text-blue-600 hover:text-blue-900 mr-4"
-                        >
-                          View
-                        </button>
-                        <button
+                          type="button"
                           onClick={() => handleDeleteTrajectory(trajectory.id)}
                           className="text-red-600 hover:text-red-900"
                         >
