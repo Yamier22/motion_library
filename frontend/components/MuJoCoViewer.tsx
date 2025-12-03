@@ -178,19 +178,28 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
         scene.add(camera);
         cameraRef.current = camera;
 
-        // Set up lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+        // Very bright sunlight-like illumination using ambient + hemisphere
+        // No directional light - will use lights from MuJoCo XML environment if needed
+
+        // Very bright ambient light for overall scene illumination
+        const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
         scene.add(ambientLight);
 
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(0, 3, 3);
-        directionalLight.castShadow = true;
-        scene.add(directionalLight);
+        // Strong hemisphere light for natural sky/ground lighting
+        const hemisphereLight = new THREE.HemisphereLight(
+          0xffffff, // Sky color (bright white)
+          0x888888, // Ground color (brighter gray for more fill)
+          1.5
+        );
+        scene.add(hemisphereLight);
 
         // Set up renderer
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(width, height);
+
+        // Use linear color space to match MuJoCo colors exactly
+        renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;

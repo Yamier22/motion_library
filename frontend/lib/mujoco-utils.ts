@@ -306,21 +306,51 @@ export function loadMuJoCoScene(
     }
 
     // Create a new material for each geom
-    const currentMaterial = new THREE.MeshPhysicalMaterial({
+    // Use MeshPhongMaterial to match MuJoCo's lighting model
+    const matId = model.geom_matid[g];
+
+    // Get material properties (if material assigned)
+    const shininess = matId !== -1 ? model.mat_shininess[matId] : 0.5;
+    const specular = matId !== -1 ? model.mat_specular[matId] : 0.5;
+    const emission = matId !== -1 ? model.mat_emission[matId] : 0.0;
+
+    const currentMaterial = new THREE.MeshPhongMaterial({
       color: new THREE.Color(color[0], color[1], color[2]),
       transparent: color[3] < 1.0,
       opacity: color[3],
-      specularIntensity: model.geom_matid[g] !== -1 ? model.mat_specular[model.geom_matid[g]] : undefined,
-      reflectivity: model.geom_matid[g] !== -1 ? model.mat_reflectance[model.geom_matid[g]] : undefined,
-      roughness: model.geom_matid[g] !== -1 ? 1.0 - model.mat_shininess[model.geom_matid[g]] : undefined,
-      metalness: model.geom_matid[g] !== -1 ? 0.1 : undefined,
+
+      // Map MuJoCo shininess (0-1) to Three.js shininess (0-100)
+      shininess: shininess * 100,
+
+      // Map MuJoCo specular (scalar) to Three.js specular (RGB color)
+      // MuJoCo's specular multiplies white light
+      specular: new THREE.Color(specular, specular, specular),
+
+      // Map MuJoCo emission (scalar) to Three.js emissive (RGB color)
+      // MuJoCo's emission multiplies the base color
+      emissive: new THREE.Color(
+        color[0] * emission,
+        color[1] * emission,
+        color[2] * emission
+      ),
+
+      // No reflectivity (no environment map, reflections disabled)
+      reflectivity: 0,
+
       map: texture
     });
 
     let mesh: THREE.Mesh | any;
     if (type === mujoco.mjtGeom.mjGEOM_PLANE.value) {
-      // Use Reflector for plane
-      mesh = new Reflector(new THREE.PlaneGeometry(100, 100), { clipBias: 0.003, texture: texture });
+      // Use Reflector for plane with subtle reflection (low opacity)
+      mesh = new Reflector(new THREE.PlaneGeometry(100, 100), {
+        clipBias: 0.003,
+        textureWidth: 512,
+        textureHeight: 512,
+        color: 0x333333, // Dark gray tint to reduce reflection intensity
+        opacity: 0.15,    // Very low opacity for subtle reflection effect
+        texture: texture
+      });
       if (swizzle) {
         mesh.rotateX(-Math.PI / 2);
       }
@@ -371,8 +401,12 @@ export function loadMuJoCoScene(
   console.log(`Creating instanced meshes: ${maxCylinders} cylinders, ${maxSpheres} spheres (for ${model.ntendon} tendons, ${model.nflex} flex)`);
 
   // Parse tendons - create instanced meshes for efficient rendering
-  const tendonMat = new THREE.MeshPhongMaterial();
-  tendonMat.color = new THREE.Color(0.8, 0.3, 0.3);
+  // Use MeshPhongMaterial so tendons are affected by lighting (matching MuJoCo)
+  const tendonMat = new THREE.MeshPhongMaterial({
+    color: new THREE.Color(0.95, 0.3, 0.3),
+    shininess: 30,
+    specular: new THREE.Color(0.3, 0.3, 0.3)
+  });
 
   (mujocoRoot as any).cylinders = new THREE.InstancedMesh(
     new THREE.CylinderGeometry(1, 1, 1),
