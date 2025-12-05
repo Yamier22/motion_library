@@ -14,6 +14,12 @@ import {
 import { modelApi, ModelMetadata } from '@/lib/api';
 import { getPosition, getQuaternion, loadMuJoCoScene, drawTendonsAndFlex } from '@/lib/mujoco-utils';
 import { MuJoCoCamera } from './VideoControls';
+import {
+  createRecordingRenderer,
+  createRecordingCamera,
+  downloadBlob
+} from '@/lib/video-recorder';
+import { StreamingRecorder } from '@/lib/streaming-recorder';
 
 export interface ViewerOptions {
   showFixedAxes: boolean;
@@ -41,7 +47,7 @@ interface MuJoCoViewerProps {
 }
 
 export interface MuJoCoViewerRef {
-  recordVideo: () => Promise<void>;
+  recordVideo: (onProgress?: (progress: number) => void) => Promise<void>;
 }
 
 const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJoCoViewer(
@@ -867,9 +873,128 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
 
   // Expose recordVideo function to parent via ref
   useImperativeHandle(ref, () => ({
-    recordVideo: async () => {
-      // TODO: Implement video recording in Phase 2
-      console.log('[VIDEO] recordVideo called - not yet implemented');
+    recordVideo: async (onProgress?: (progress: number) => void) => {
+      // Validate prerequisites
+      if (!trajectoryRef.current || !trajectoryRef.current.qpos.length) {
+        throw new Error('No trajectory loaded');
+      }
+      if (!sceneRef.current || !cameraRef.current || !rendererRef.current) {
+        throw new Error('Scene not initialized');
+      }
+      if (!modelRef.current || !dataRef.current || !mujocoRef.current) {
+        throw new Error('MuJoCo not initialized');
+      }
+
+      console.log('[VIDEO] Starting video recording with FFmpeg.wasm');
+
+      const trajectory = trajectoryRef.current;
+      const totalTrajectoryFrames = trajectory.qpos.length;
+      const trajectoryFrameRate = trajectory.frameRate; // Hz (e.g., 100 fps)
+
+      // Calculate trajectory duration in seconds
+      const trajectoryDuration = totalTrajectoryFrames / trajectoryFrameRate;
+
+      // Calculate how many video frames we need at 30fps
+      const videoFrameRate = 30; // Target video fps
+      const totalVideoFrames = Math.round(trajectoryDuration * videoFrameRate);
+
+      console.log(`[VIDEO] Trajectory: ${totalTrajectoryFrames} frames at ${trajectoryFrameRate} Hz = ${trajectoryDuration.toFixed(2)}s`);
+      console.log(`[VIDEO] Video: ${totalVideoFrames} frames at ${videoFrameRate} fps`);
+
+      // Create off-screen renderer (matches main renderer's color space)
+      const recordingRenderer = createRecordingRenderer();
+
+      // Clone camera with 16:9 aspect ratio
+      const recordingCamera = createRecordingCamera(cameraRef.current);
+
+      try {
+        // Create streaming recorder (uses Mediabunny + WebCodecs)
+        const recorder = new StreamingRecorder({
+          width: 1920,
+          height: 1080,
+          fps: videoFrameRate
+        });
+
+        // Start streaming encoder
+        await recorder.start();
+        console.log('[VIDEO] Streaming recorder ready');
+
+        // Render and encode frames incrementally (streaming - no buffering!)
+        console.log('[VIDEO] Rendering and encoding frames (streaming)...');
+        for (let videoFrame = 0; videoFrame < totalVideoFrames; videoFrame++) {
+          // Calculate which trajectory frame corresponds to this video frame
+          const trajectoryTime = (videoFrame / videoFrameRate);
+          const trajectoryFrameIndex = Math.min(
+            Math.round(trajectoryTime * trajectoryFrameRate),
+            totalTrajectoryFrames - 1
+          );
+
+          const qposData = trajectory.qpos[trajectoryFrameIndex];
+
+          // Apply qpos to MuJoCo data
+          for (let i = 0; i < qposData.length; i++) {
+            dataRef.current.qpos[i] = qposData[i];
+          }
+
+          // Compute forward kinematics
+          mujocoRef.current.mj_forward(modelRef.current, dataRef.current);
+
+          // Update body transforms in THREE.js scene
+          for (let b = 0; b < modelRef.current.nbody; b++) {
+            if (bodiesRef.current[b]) {
+              getPosition(dataRef.current.xpos, b, bodiesRef.current[b].position, false);
+              getQuaternion(dataRef.current.xquat, b, bodiesRef.current[b].quaternion, false);
+              bodiesRef.current[b].updateWorldMatrix(false, false);
+            }
+          }
+
+          // Update tendons and flex
+          if (mujocoRootRef.current) {
+            drawTendonsAndFlex(mujocoRootRef.current, modelRef.current, dataRef.current, false);
+          }
+
+          // Update MuJoCo camera if active
+          if (activeCameraIdRef.current >= 0) {
+            updateCameraFromMuJoCo(recordingCamera, dataRef.current, modelRef.current, activeCameraIdRef.current);
+          } else {
+            // For free camera, copy transform from main camera
+            recordingCamera.position.copy(cameraRef.current.position);
+            recordingCamera.quaternion.copy(cameraRef.current.quaternion);
+            recordingCamera.updateMatrixWorld();
+          }
+
+          // Render frame to off-screen canvas
+          recordingRenderer.render(sceneRef.current, recordingCamera);
+
+          // Add frame to encoder (encodes immediately, no buffering!)
+          await recorder.addFrame(recordingRenderer.domElement);
+
+          // Report progress (0-100%)
+          const progress = ((videoFrame + 1) / totalVideoFrames) * 100;
+          if (onProgress) {
+            onProgress(progress);
+          }
+          if (videoFrame % 10 === 0 || videoFrame === totalVideoFrames - 1) {
+            console.log(`[VIDEO] Encoded ${videoFrame + 1}/${totalVideoFrames} frames (${Math.round(progress)}%)`);
+          }
+        }
+
+        // Finalize video (flush encoder and complete MP4 file)
+        console.log('[VIDEO] Finalizing MP4...');
+        const blob = await recorder.stop();
+
+        // Download video
+        const filename = `trajectory_${Date.now()}.mp4`;
+        downloadBlob(blob, filename);
+
+        console.log('[VIDEO] Video saved:', filename, `(${(blob.size / 1024 / 1024).toFixed(2)} MB)`);
+
+      } finally {
+        // Cleanup
+        recordingRenderer.dispose();
+
+        console.log('[VIDEO] Recording complete, resources cleaned up');
+      }
     }
   }));
 

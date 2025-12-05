@@ -141,7 +141,14 @@ export default function VisualizePage() {
       try {
         setIsRecording(true);
         setRecordingProgress(0);
-        await viewerRef.current.recordVideo();
+
+        // Pass progress callback to update UI
+        await viewerRef.current.recordVideo((progress: number) => {
+          setRecordingProgress(progress);
+        });
+
+        // Ensure 100% at end
+        setRecordingProgress(100);
       } catch (error) {
         console.error('Recording failed:', error);
         alert('Failed to record video: ' + (error instanceof Error ? error.message : 'Unknown error'));

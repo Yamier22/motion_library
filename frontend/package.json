@@ -9,10 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@types/three": "^0.181.0",
     "axios": "^1.13.2",
     "fflate": "^0.8.2",
     "lucide-react": "^0.555.0",
+    "mediabunny": "^1.25.6",
     "next": "16.0.5",
     "npyjs": "^1.0.4",
     "react": "19.2.0",
