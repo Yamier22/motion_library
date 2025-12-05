@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/lib/mujoco-loader';
 import { modelApi, ModelMetadata } from '@/lib/api';
 import { getPosition, getQuaternion, loadMuJoCoScene, drawTendonsAndFlex } from '@/lib/mujoco-utils';
+import { MuJoCoCamera } from './VideoControls';
 
 export interface ViewerOptions {
   showFixedAxes: boolean;
@@ -35,9 +36,18 @@ interface MuJoCoViewerProps {
   trajectory?: TrajectoryPlaybackState;
   onModelLoaded?: () => void;
   onError?: (error: string) => void;
+  onCamerasLoaded?: (cameras: MuJoCoCamera[]) => void;
+  activeCamera?: string;
 }
 
-export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options, trajectory, onModelLoaded, onError }: MuJoCoViewerProps) {
+export interface MuJoCoViewerRef {
+  recordVideo: () => Promise<void>;
+}
+
+const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJoCoViewer(
+  { modelXML, modelId, modelMetadata, options, trajectory, onModelLoaded, onError, onCamerasLoaded, activeCamera },
+  ref
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -59,6 +69,12 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
   const axisSceneRef = useRef<THREE.Scene | null>(null);
   const axisCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
+  // Camera management
+  const [cameras, setCameras] = useState<MuJoCoCamera[]>([]);
+  const camerasRef = useRef<MuJoCoCamera[]>([]);
+  const activeCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const activeCameraIdRef = useRef<number>(-1); // -1 for free, >= 0 for MuJoCo camera ID
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,6 +92,66 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
       console.log('[MUJOCO VIEWER] Trajectory prop cleared (undefined)');
     }
   }, [trajectory]);
+
+  // Load cameras when model changes
+  useEffect(() => {
+    if (modelRef.current && cameraRef.current) {
+      const loadedCameras = loadCamerasFromModel(modelRef.current, cameraRef.current);
+      setCameras(loadedCameras);
+      camerasRef.current = loadedCameras; // Store in ref for render loop
+      activeCameraRef.current = cameraRef.current; // Start with free camera
+      activeCameraIdRef.current = -1; // Free camera
+
+      if (onCamerasLoaded) {
+        onCamerasLoaded(loadedCameras);
+      }
+    }
+  }, [modelRef.current, onCamerasLoaded]);
+
+  // Handle camera switching
+  useEffect(() => {
+    console.log('[CAMERAS] Camera switch effect triggered', { activeCamera, camerasLength: cameras.length });
+
+    if (!activeCamera || cameras.length === 0) {
+      console.log('[CAMERAS] Skipping - no activeCamera or cameras empty');
+      return;
+    }
+
+    const selectedCamera = cameras.find(cam => cam.name === activeCamera);
+    if (!selectedCamera) {
+      console.warn(`[CAMERAS] Camera "${activeCamera}" not found in cameras list`);
+      return;
+    }
+
+    console.log(`[CAMERAS] Switching to camera: ${activeCamera} (mujocoId: ${selectedCamera.mujocoId})`);
+
+    // Store camera ID in ref for render loop access
+    activeCameraIdRef.current = selectedCamera.mujocoId;
+
+    // For free camera, use the main camera and enable controls
+    if (selectedCamera.mujocoId === -1) {
+      activeCameraRef.current = cameraRef.current;
+      if (controlsRef.current) {
+        controlsRef.current.enabled = true;
+        console.log('[CAMERAS] Free camera activated, OrbitControls enabled');
+      }
+    } else {
+      // For MuJoCo cameras, we'll use the main camera but update its transform from MuJoCo data
+      // Disable orbit controls for MuJoCo cameras
+      activeCameraRef.current = cameraRef.current;
+      if (controlsRef.current) {
+        controlsRef.current.enabled = false;
+        console.log('[CAMERAS] MuJoCo camera activated, OrbitControls disabled');
+      }
+
+      // Log camera properties
+      if (modelRef.current) {
+        const fovy = modelRef.current.cam_fovy?.[selectedCamera.mujocoId];
+        const orthographic = modelRef.current.cam_orthographic?.[selectedCamera.mujocoId];
+        console.log(`[CAMERAS] Camera properties - fovy: ${fovy}, orthographic: ${orthographic}`);
+      }
+    }
+  }, [activeCamera, cameras]);
 
   // Debug helper - expose scene to window for debugging
   useEffect(() => {
@@ -131,6 +207,130 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
       current = current.parent;
     }
     return depth;
+  };
+
+  // Load cameras from MuJoCo model
+  const loadCamerasFromModel = (model: any, freeCamera: THREE.PerspectiveCamera): MuJoCoCamera[] => {
+    const loadedCameras: MuJoCoCamera[] = [
+      { name: 'free', mujocoId: -1 }
+    ];
+
+    if (!model || model.ncam === 0) {
+      console.log('[CAMERAS] No MuJoCo cameras found in model');
+      return loadedCameras;
+    }
+
+    console.log(`[CAMERAS] Loading ${model.ncam} cameras from MuJoCo model`);
+
+    for (let i = 0; i < model.ncam; i++) {
+      // Get camera name from MuJoCo model
+      const nameAddr = model.name_camadr[i];
+      let camName = 'Camera ' + (i + 1);
+
+      if (nameAddr >= 0 && model.names) {
+        // Extract null-terminated string from names buffer
+        const names = new Uint8Array(model.names);
+        let endIdx = nameAddr;
+        while (endIdx < names.length && names[endIdx] !== 0) {
+          endIdx++;
+        }
+        const nameBytes = names.slice(nameAddr, endIdx);
+        const decodedName = new TextDecoder().decode(nameBytes);
+        if (decodedName) {
+          camName = decodedName;
+        }
+      }
+
+      console.log(`[CAMERAS] Camera ${i}: ${camName}`);
+      loadedCameras.push({
+        name: camName,
+        mujocoId: i
+      });
+    }
+
+    return loadedCameras;
+  };
+
+  // Update camera transform from MuJoCo data
+  const updateCameraFromMuJoCo = (camera: THREE.PerspectiveCamera, data: any, model: any, camId: number) => {
+    if (!data || !model || camId < 0 || camId >= model.ncam) {
+      console.warn('[CAMERA UPDATE] Invalid camera update call', { hasData: !!data, hasModel: !!model, camId, ncam: model?.ncam });
+      return;
+    }
+
+    // Update camera FOV from model
+    const fovy = model.cam_fovy[camId]; // cam_fovy is in DEGREES for perspective cameras, or vertical extent for orthographic
+    const orthographic = model.cam_orthographic[camId];
+
+    // For perspective cameras, fovy is already in degrees
+    if (!orthographic) {
+      const oldFov = camera.fov;
+      camera.fov = fovy; // Already in degrees, use directly
+      camera.updateProjectionMatrix();
+      if (Math.abs(oldFov - camera.fov) > 0.1) {
+        console.log(`[CAMERA UPDATE] FOV changed from ${oldFov.toFixed(1)}° to ${camera.fov.toFixed(1)}°`);
+      }
+    }
+
+    // Get camera position from cam_xpos (3 floats per camera)
+    const posIdx = camId * 3;
+    const mjX = data.cam_xpos[posIdx + 0];
+    const mjY = data.cam_xpos[posIdx + 1];
+    const mjZ = data.cam_xpos[posIdx + 2];
+
+    console.log(`[CAMERA UPDATE] MuJoCo cam_xpos[${camId}]: [${mjX.toFixed(3)}, ${mjY.toFixed(3)}, ${mjZ.toFixed(3)}]`);
+
+    // Get camera orientation from cam_xmat (9 floats per camera - 3x3 rotation matrix in row-major order)
+    // cam_xmat represents the rotation matrix from world frame to camera frame
+    const matIdx = camId * 9;
+
+    // Coordinate system alignment:
+    // - Both MuJoCo and THREE.js use Z-up coordinate system
+    // - Both systems have cameras looking down the -Z axis (forward direction)
+    // - Both use +X as right and +Y as up (for a camera looking down -Z)
+    //
+    // MuJoCo cam_xmat format (row-major, 3x3 rotation matrix):
+    // cam_xmat = [right_x, right_y, right_z,      (row 0: camera's right/X axis in world coords)
+    //             up_x, up_y, up_z,                (row 1: camera's up/Y axis in world coords)
+    //             -forward_x, -forward_y, -forward_z]  (row 2: camera's -Z axis in world coords)
+
+    // Build rotation matrix from MuJoCo camera orientation
+    const mat = new THREE.Matrix4();
+
+    // Extract rotation matrix from cam_xmat (row-major)
+    const m00 = data.cam_xmat[matIdx + 0]; // right.x
+    const m01 = data.cam_xmat[matIdx + 1]; // right.y
+    const m02 = data.cam_xmat[matIdx + 2]; // right.z
+    const m10 = data.cam_xmat[matIdx + 3]; // up.x
+    const m11 = data.cam_xmat[matIdx + 4]; // up.y
+    const m12 = data.cam_xmat[matIdx + 5]; // up.z
+    const m20 = data.cam_xmat[matIdx + 6]; // -forward.x
+    const m21 = data.cam_xmat[matIdx + 7]; // -forward.y
+    const m22 = data.cam_xmat[matIdx + 8]; // -forward.z
+
+    // THREE.js Matrix4 format (column-major, 4x4 matrix):
+    // Since coordinate systems are aligned, we can directly map MuJoCo's rotation matrix
+    // to THREE.js camera matrix by converting from row-major to column-major order
+    mat.set(
+      m00, m01, m02, mjX,  // Column 0: right vector + X position
+      m10, m11, m12, mjY,  // Column 1: up vector + Y position
+      m20, m21, m22, mjZ,  // Column 2: -forward vector + Z position
+      0, 0, 0, 1           // Column 3: homogeneous coordinates
+    );
+
+    // Extract position and rotation
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    mat.decompose(position, quaternion, scale);
+
+    const oldPos = camera.position.clone();
+    camera.position.copy(position);
+    camera.quaternion.copy(quaternion);
+    camera.updateMatrixWorld();
+
+    console.log(`[CAMERA UPDATE] Camera position set: [${position.x.toFixed(3)}, ${position.y.toFixed(3)}, ${position.z.toFixed(3)}]`);
+    console.log(`[CAMERA UPDATE] Position change: [${(position.x - oldPos.x).toFixed(3)}, ${(position.y - oldPos.y).toFixed(3)}, ${(position.z - oldPos.z).toFixed(3)}]`);
   };
 
   // Initialize Three.js scene and MuJoCo WASM
@@ -580,6 +780,25 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
         if (mujocoRootRef.current) {
           drawTendonsAndFlex(mujocoRootRef.current, modelRef.current, dataRef.current, false);
         }
+
+        // Update camera from MuJoCo if using a MuJoCo camera
+        // Use ref instead of closure variable to access latest camera ID
+        if (activeCameraIdRef.current >= 0 && cameraRef.current && dataRef.current && modelRef.current) {
+          const camId = activeCameraIdRef.current;
+
+          // Log camera update every 30 frames
+          const shouldLog = currentTrajectory && currentTrajectory.currentFrame % 30 === 0;
+          if (shouldLog || !currentTrajectory) {
+            console.log(`[CAMERA UPDATE] Updating MuJoCo camera (id: ${camId})`);
+          }
+
+          updateCameraFromMuJoCo(cameraRef.current, dataRef.current, modelRef.current, camId);
+
+          if (shouldLog || !currentTrajectory) {
+            console.log(`[CAMERA UPDATE] Camera position: [${cameraRef.current.position.x.toFixed(3)}, ${cameraRef.current.position.y.toFixed(3)}, ${cameraRef.current.position.z.toFixed(3)}]`);
+            console.log(`[CAMERA UPDATE] Camera FOV: ${cameraRef.current.fov.toFixed(1)}°`);
+          }
+        }
       }
 
       if (sceneRef.current && cameraRef.current && rendererRef.current) {
@@ -646,6 +865,14 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
     animate();
   };
 
+  // Expose recordVideo function to parent via ref
+  useImperativeHandle(ref, () => ({
+    recordVideo: async () => {
+      // TODO: Implement video recording in Phase 2
+      console.log('[VIDEO] recordVideo called - not yet implemented');
+    }
+  }));
+
   return (
     <div className="absolute inset-0">
       <div ref={containerRef} className="absolute inset-0" />
@@ -661,4 +888,6 @@ export default function MuJoCoViewer({ modelXML, modelId, modelMetadata, options
       )}
     </div>
   );
-}
+});
+
+export default MuJoCoViewer;

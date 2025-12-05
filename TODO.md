@@ -1,0 +1,6 @@
+- [ ] Upload local file
+- [ ] Download trajectories
+- [ ] Video recording
+- [ ] Camera selection
+- [ ] reference trajectory recording
+- [ ] Muscle With Activation

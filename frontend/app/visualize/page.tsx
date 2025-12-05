@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import MuJoCoViewer, { ViewerOptions, TrajectoryPlaybackState } from '@/components/MuJoCoViewer';
+import MuJoCoViewer, { ViewerOptions, TrajectoryPlaybackState, MuJoCoViewerRef } from '@/components/MuJoCoViewer';
 import ModelSelector from '@/components/ModelSelector';
 import TrajectorySelector from '@/components/TrajectorySelector';
 import ViewerOptionsPanel from '@/components/ViewerOptions';
+import VideoControls, { MuJoCoCamera } from '@/components/VideoControls';
 import { ModelMetadata, TrajectoryMetadata } from '@/lib/api';
 import { parseTrajectory, TrajectoryData } from '@/lib/trajectory-parser';
 
@@ -25,6 +26,13 @@ export default function VisualizePage() {
     showFixedAxes: true,
     showMovingAxes: true,
   });
+
+  // Camera and video recording state
+  const [cameras, setCameras] = useState<MuJoCoCamera[]>([]);
+  const [activeCamera, setActiveCamera] = useState('free');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingProgress, setRecordingProgress] = useState(0);
+  const viewerRef = useRef<MuJoCoViewerRef>(null);
 
   // Playback loop - advance frames when playing
   useEffect(() => {
@@ -120,6 +128,28 @@ export default function VisualizePage() {
 
   const handleSpeedChange = (speed: number) => {
     setPlaybackSpeed(speed);
+  };
+
+  const handleCameraChange = (cameraName: string) => {
+    if (!isRecording) {
+      setActiveCamera(cameraName);
+    }
+  };
+
+  const handleRecord = async () => {
+    if (viewerRef.current) {
+      try {
+        setIsRecording(true);
+        setRecordingProgress(0);
+        await viewerRef.current.recordVideo();
+      } catch (error) {
+        console.error('Recording failed:', error);
+        alert('Failed to record video: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      } finally {
+        setIsRecording(false);
+        setRecordingProgress(0);
+      }
+    }
   };
 
   // Keyboard shortcuts
@@ -387,6 +417,19 @@ export default function VisualizePage() {
             </div>
           </div>
 
+          {/* Video Controls Section */}
+          <div className="border-b border-gray-700 p-4">
+            <VideoControls
+              cameras={cameras}
+              activeCamera={activeCamera}
+              onCameraChange={handleCameraChange}
+              onRecord={handleRecord}
+              isRecording={isRecording}
+              recordingProgress={recordingProgress}
+              disabled={!trajectoryData}
+            />
+          </div>
+
           {/* Models Section */}
           <div className="border-b border-gray-700">
             <ModelSelector
@@ -415,6 +458,7 @@ export default function VisualizePage() {
         {/* 3D Viewer */}
         <div className="flex-1 relative">
           <MuJoCoViewer
+            ref={viewerRef}
             modelXML={selectedModelXML}
             modelId={selectedModel?.id}
             modelMetadata={selectedModel ?? undefined}
@@ -422,6 +466,8 @@ export default function VisualizePage() {
             options={viewerOptions}
             onModelLoaded={() => console.log('Model loaded successfully')}
             onError={(error) => console.error('Viewer error:', error)}
+            onCamerasLoaded={setCameras}
+            activeCamera={activeCamera}
           />
         </div>
       </div>
