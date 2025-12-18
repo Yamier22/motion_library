@@ -110,6 +110,37 @@ export default function DashboardPage() {
     return new Date(dateString).toLocaleDateString();
   };
 
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadModel = async (id: string, filename: string) => {
+    try {
+      const blob = await modelApi.get(id);
+      downloadBlob(blob, filename);
+    } catch (error) {
+      console.error('Error downloading model:', error);
+      alert('Failed to download model');
+    }
+  };
+
+  const handleDownloadTrajectory = async (id: string, filename: string) => {
+    try {
+      const blob = await trajectoryApi.get(id);
+      downloadBlob(blob, filename);
+    } catch (error) {
+      console.error('Error downloading trajectory:', error);
+      alert('Failed to download trajectory');
+    }
+  };
+
   const getCategories = (): string[] => {
     const cats = new Set<string>();
     trajectories.forEach(t => {
@@ -178,6 +209,9 @@ export default function DashboardPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Upload Date
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Download
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -194,6 +228,15 @@ export default function DashboardPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {formatDate(model.upload_date)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadModel(model.id, model.filename)}
+                          className="px-3 py-1 text-xs font-medium text-blue-600 border border-blue-600 rounded hover:bg-blue-50"
+                        >
+                          Download
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -247,6 +290,9 @@ export default function DashboardPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Upload Date
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Download
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -269,6 +315,15 @@ export default function DashboardPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {formatDate(trajectory.upload_date)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadTrajectory(trajectory.id, trajectory.filename)}
+                          className="px-3 py-1 text-xs font-medium text-blue-600 border border-blue-600 rounded hover:bg-blue-50"
+                        >
+                          Download
+                        </button>
                       </td>
                     </tr>
                   ))}
