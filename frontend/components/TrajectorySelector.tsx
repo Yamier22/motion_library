@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { trajectoryApi, TrajectoryMetadata } from '@/lib/api';
+import { Upload } from 'lucide-react';
 
 interface TrajectorySelectorProps {
   onTrajectorySelect: (trajectoryData: Blob, trajectory: TrajectoryMetadata) => void;
@@ -25,6 +26,13 @@ export default function TrajectorySelector({
   const [defaultCollapsed, setDefaultCollapsed] = useState(true);
   const [thumbnailUrls, setThumbnailUrls] = useState<Map<string, string>>(new Map());
   const [loadedCategories, setLoadedCategories] = useState<Set<string>>(new Set());
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadMode, setUploadMode] = useState<'new' | 'existing'>('new');
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadTrajectories();
@@ -150,10 +158,95 @@ export default function TrajectorySelector({
       .sort((a, b) => a.categoryName.localeCompare(b.categoryName));
   };
 
+  // Get all unique categories
+  const getAllCategories = (): string[] => {
+    const categories = new Set<string>();
+    trajectories.forEach((trajectory) => {
+      if (trajectory.category) {
+        categories.add(trajectory.category);
+      }
+    });
+    return Array.from(categories).sort();
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && (file.name.endsWith('.npy') || file.name.endsWith('.npz'))) {
+      setSelectedFile(file);
+    } else if (file) {
+      alert('请选择 .npy 或 .npz 文件');
+      setSelectedFile(null);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      alert('请先选择文件');
+      return;
+    }
+
+    let category: string | undefined;
+    if (uploadMode === 'new') {
+      if (!newCategoryName.trim()) {
+        alert('请输入文件夹名称');
+        return;
+      }
+      category = newCategoryName.trim();
+    } else {
+      if (!selectedCategory) {
+        alert('请选择文件夹');
+        return;
+      }
+      category = selectedCategory === 'Uncategorized' ? undefined : selectedCategory;
+    }
+
+    setUploading(true);
+    try {
+      await trajectoryApi.upload(selectedFile, category);
+      // Reload trajectories
+      await loadTrajectories();
+      // Reset form
+      setShowUploadModal(false);
+      setSelectedFile(null);
+      setNewCategoryName('');
+      setSelectedCategory('');
+      setUploadMode('new');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      alert('上传成功！');
+    } catch (err) {
+      console.error('Error uploading trajectory:', err);
+      alert('上传失败: ' + (err instanceof Error ? err.message : '未知错误'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const openUploadModal = () => {
+    setShowUploadModal(true);
+    setSelectedFile(null);
+    setNewCategoryName('');
+    setSelectedCategory('');
+    setUploadMode('new');
+  };
+
+  const closeUploadModal = () => {
+    if (!uploading) {
+      setShowUploadModal(false);
+      setSelectedFile(null);
+      setNewCategoryName('');
+      setSelectedCategory('');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-4">
-        <h3 className="text-lg font-semibold mb-4 text-gray-200">Trajectories</h3>
+        <h3 className="text-lg font-semibold mb-4 text-gray-200" style={{ height: '32px', marginTop: '0px', marginBottom: '0px' }}>Trajectories</h3>
         <div className="text-gray-400 text-sm">Loading trajectories...</div>
       </div>
     );
@@ -162,7 +255,7 @@ export default function TrajectorySelector({
   if (error && trajectories.length === 0) {
     return (
       <div className="p-4">
-        <h3 className="text-lg font-semibold mb-4 text-gray-200">Trajectories</h3>
+        <h3 className="text-lg font-semibold mb-4 text-gray-200" style={{ height: '32px', marginTop: '0px', marginBottom: '0px' }}>Trajectories</h3>
         <div className="text-red-400 text-sm">{error}</div>
         <button
           type="button"
@@ -177,13 +270,134 @@ export default function TrajectorySelector({
 
   const categoryGroups = groupTrajectories();
 
+  const allCategories = getAllCategories();
+
   return (
     <div className="p-4">
-      <h3 className="text-lg font-semibold mb-4 text-gray-200">Trajectories</h3>
+      <div className="flex items-center justify-between mb-4 relative">
+        <h3 className="text-lg font-semibold text-gray-200" style={{ height: '32px', marginTop: '5px', marginBottom: '5px' }}>Trajectories</h3>
+        <button
+          type="button"
+          onClick={openUploadModal}
+          className="flex items-center justify-center gap-1 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+          style={{ width: '180px', marginTop: '10px', marginBottom: '10px', marginLeft: '0px', marginRight: '0px', position: 'static' }}
+        >
+          <Upload className="w-4 h-4" />
+          Upload Trajectory
+        </button>
+      </div>
 
       {error && (
         <div className="mb-3 text-red-400 text-xs bg-red-900 bg-opacity-20 p-2 rounded">
           {error}
+        </div>
+      )}
+
+      {/* Upload Modal */}
+      {showUploadModal && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={closeUploadModal}
+        >
+          <div 
+            className="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-semibold text-white mb-4">上传轨迹文件</h2>
+
+            {/* Folder Selection Mode */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                选择文件夹
+              </label>
+              <div className="flex gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setUploadMode('new')}
+                  className={`flex-1 px-4 py-2 rounded transition-colors ${
+                    uploadMode === 'new'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  新建文件夹
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUploadMode('existing')}
+                  className={`flex-1 px-4 py-2 rounded transition-colors ${
+                    uploadMode === 'existing'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  使用已有文件夹
+                </button>
+              </div>
+
+              {uploadMode === 'new' ? (
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="输入新文件夹名称"
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              ) : (
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">选择文件夹</option>
+                  {allCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* File Selection */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                选择文件
+              </label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".npy,.npz"
+                onChange={handleFileSelect}
+                className="w-full px-3 py-2 bg-gray-700 text-white rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+              />
+              {selectedFile && (
+                <p className="mt-2 text-sm text-gray-400">
+                  已选择: {selectedFile.name}
+                </p>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={closeUploadModal}
+                disabled={uploading}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleUpload}
+                disabled={uploading || !selectedFile}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {uploading ? '上传中...' : '上传'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
