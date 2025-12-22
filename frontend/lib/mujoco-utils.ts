@@ -506,6 +506,7 @@ export function applyQposAndUpdateBodies(
 /**
  * Clone MuJoCo scene bodies with ghost appearance
  * Creates semi-transparent copies for reference trajectory visualization
+ * Note: This function skips InstancedMesh (tendons) and Reflector (ground) to avoid cloning them
  *
  * @param sourceBodies - Original body groups
  * @param ghostColor - Color for ghost (default: light blue 0x4488ff)
@@ -525,16 +526,29 @@ export function createGhostBodies(
       continue;
     }
 
-    // Clone the body group
-    const ghostBody = sourceBodies[b]!.clone(true);
+    // Create a new group instead of using clone(true) to have more control
+    const ghostBody = new THREE.Group();
     ghostBody.name = sourceBodies[b]!.name + '_ghost';
+    (ghostBody as any).bodyID = (sourceBodies[b] as any).bodyID;
+    (ghostBody as any).has_custom_mesh = (sourceBodies[b] as any).has_custom_mesh;
 
-    // Update materials to ghost appearance
-    ghostBody.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        // Clone material to avoid modifying original
-        const ghostMaterial = (obj.material as THREE.Material).clone();
-
+    // Clone only regular meshes, skip InstancedMesh and Reflector
+    sourceBodies[b]!.traverse((obj) => {
+      if (obj instanceof THREE.Mesh && 
+          !(obj instanceof THREE.InstancedMesh) &&
+          !((obj as any).isReflector) &&
+          obj !== (sourceBodies[b] as any)) {  // Don't process the group itself
+        
+        // Clone the mesh geometry and transform
+        const ghostMesh = obj.clone(true);
+        
+        // IMPORTANT: Ensure cloned mesh is visible
+        // (clone copies all properties including visible state)
+        ghostMesh.visible = true;
+        
+        // Clone and modify material
+        const ghostMaterial = (ghostMesh.material as THREE.Material).clone();
+        
         if (ghostMaterial instanceof THREE.MeshPhongMaterial) {
           ghostMaterial.color.setHex(ghostColor);
           ghostMaterial.transparent = true;
@@ -542,8 +556,11 @@ export function createGhostBodies(
           ghostMaterial.depthWrite = false; // Prevent z-fighting
         }
 
-        obj.material = ghostMaterial;
-        obj.renderOrder = -1; // Render before opaque objects
+        ghostMesh.material = ghostMaterial;
+        ghostMesh.renderOrder = -1; // Render before opaque objects
+        
+        // Add to ghost body
+        ghostBody.add(ghostMesh);
       }
     });
 

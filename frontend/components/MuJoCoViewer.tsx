@@ -251,52 +251,162 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
 
       if (!existing) {
         // Create new trajectory bodies
-        const bodies: (THREE.Group | null)[] = traj.isGhost
-          ? createGhostBodies(bodiesArray as (THREE.Group | null)[])
-          : bodiesArray.map(b => b?.clone(true) ?? null);
+        // Clone bodies but exclude ground plane (Reflector) and instanced meshes (tendons)
+        const bodies: (THREE.Group | null)[] = [];
+        
+        for (let i = 0; i < bodiesArray.length; i++) {
+          const sourceBody = bodiesArray[i];
+          if (!sourceBody) {
+            bodies[i] = null;
+            continue;
+          }
+          
+          // Create a new group for this body
+          const clonedBody = new THREE.Group();
+          clonedBody.name = sourceBody.name;
+          (clonedBody as any).bodyID = (sourceBody as any).bodyID;
+          (clonedBody as any).has_custom_mesh = (sourceBody as any).has_custom_mesh;
+          
+          // Clone only regular mesh children, skip InstancedMesh and Reflector
+          sourceBody.children.forEach(child => {
+            if (child instanceof THREE.Mesh && 
+                !(child instanceof THREE.InstancedMesh) &&
+                !((child as any).isReflector)) {
+              const clonedMesh = child.clone(true);
+              
+              // IMPORTANT: Ensure cloned mesh is visible
+              // (clone copies all properties including visible state)
+              clonedMesh.visible = true;
+              
+              // Apply ghost material if needed
+              if (traj.isGhost && clonedMesh.material) {
+                const ghostMaterial = (clonedMesh.material as THREE.Material).clone();
+                if (ghostMaterial instanceof THREE.MeshPhongMaterial) {
+                  ghostMaterial.color.setHex(0x4488ff); // Light blue
+                  ghostMaterial.transparent = true;
+                  ghostMaterial.opacity = 0.35;
+                  ghostMaterial.depthWrite = false;
+                }
+                clonedMesh.material = ghostMaterial;
+                clonedMesh.renderOrder = -1;
+              }
+              
+              clonedBody.add(clonedMesh);
+            }
+          });
+          
+          bodies[i] = clonedBody;
+        }
+
+        // Build body hierarchy: add child bodies to their parents
+        for (let i = 0; i < bodiesArray.length; i++) {
+          if (!bodiesArray[i] || !bodies[i]) continue;
+          
+          bodiesArray[i]!.children.forEach(child => {
+            if (child instanceof THREE.Group && (child as any).bodyID !== undefined) {
+              // This is a child body
+              const childBodyId = (child as any).bodyID;
+              if (childBodyId < bodies.length && bodies[childBodyId]) {
+                bodies[i]!.add(bodies[childBodyId]!);
+              }
+            }
+          });
+        }
 
         // Create MuJoCo data instance
         const data = new mujocoRef.current!.MjData(modelRef.current);
 
-        // Create root group
+        // Create root group and add only the world body (body 0)
         const root = new THREE.Group();
         root.name = `Trajectory_${traj.id}`;
-        bodies.forEach(body => body && root.add(body));
+        if (bodies[0]) {
+          root.add(bodies[0]);
+        }
         sceneRef.current!.add(root);
 
         trajectoryBodiesMap.current.set(traj.id, { bodies, data, root });
-        console.log(`[TRAJECTORIES] Added trajectory: ${traj.name} (ghost: ${traj.isGhost})`);
-        console.log(`[TENDON DEBUG] Trajectory ${traj.id} root created: ${root.name}, has cylinders: ${!!(root as any).cylinders}, has spheres: ${!!(root as any).spheres}`);
+        console.log(`[TRAJECTORIES] Added trajectory: ${traj.name} (ghost: ${traj.isGhost}), bodies cloned without ground/tendons`);
       } else {
         // Update ghost appearance if isGhost changed
+        // Only modify regular meshes, skip InstancedMesh and Reflector
         existing.root.traverse(obj => {
-          if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshPhongMaterial) {
+          if (obj instanceof THREE.Mesh && 
+              !(obj instanceof THREE.InstancedMesh) &&
+              !((obj as any).isReflector) &&
+              obj.material instanceof THREE.MeshPhongMaterial) {
+            
             if (traj.isGhost) {
+              // Apply ghost appearance
+              obj.material.color.setHex(0x4488ff); // Light blue
               obj.material.transparent = true;
               obj.material.opacity = 0.35;
               obj.material.depthWrite = false;
               obj.renderOrder = -1;
             } else {
+              // Restore normal appearance
+              // Note: Original colors are not restored here
+              // You may want to store original materials for perfect restoration
               obj.material.transparent = false;
               obj.material.opacity = 1.0;
               obj.material.depthWrite = true;
               obj.renderOrder = 0;
             }
+            obj.material.needsUpdate = true;
           }
         });
+        console.log(`[TRAJECTORIES] Updated ghost appearance for: ${traj.name} (ghost: ${traj.isGhost})`);
       }
     });
 
     // Hide/show original bodies based on whether trajectories are loaded
-    if (mujocoRootRef.current) {
+    // We need to keep mujocoRoot visible but hide individual body meshes (except ground plane)
+    if (Object.keys(bodiesRef.current).length > 0) {
       if (trajectories.length > 0) {
-        // Hide original bodies when trajectories are loaded
-        mujocoRootRef.current.visible = false;
-        console.log('[TRAJECTORIES] Hiding original bodies (trajectories loaded)');
+        // Hide body meshes (but keep ground plane visible)
+        Object.values(bodiesRef.current).forEach(body => {
+          if (body) {
+            body.traverse((obj) => {
+              if (obj instanceof THREE.Mesh && 
+                  !(obj instanceof THREE.InstancedMesh) &&
+                  !((obj as any).isReflector)) {  // Keep ground plane (Reflector) visible
+                obj.visible = false;
+              }
+            });
+          }
+        });
+        
+        // Hide cylinders and spheres (tendons)
+        if (mujocoRootRef.current) {
+          if ((mujocoRootRef.current as any).cylinders) {
+            (mujocoRootRef.current as any).cylinders.visible = false;
+          }
+          if ((mujocoRootRef.current as any).spheres) {
+            (mujocoRootRef.current as any).spheres.visible = false;
+          }
+        }
+        console.log('[TRAJECTORIES] Hiding original body meshes and tendons, keeping ground plane visible');
       } else {
-        // Show original bodies when no trajectories are loaded
-        mujocoRootRef.current.visible = true;
-        console.log('[TRAJECTORIES] Showing original bodies (no trajectories)');
+        // Show all body meshes when no trajectories are loaded
+        Object.values(bodiesRef.current).forEach(body => {
+          if (body) {
+            body.traverse((obj) => {
+              if (obj instanceof THREE.Mesh) {
+                obj.visible = true;
+              }
+            });
+          }
+        });
+        
+        // Show cylinders and spheres
+        if (mujocoRootRef.current) {
+          if ((mujocoRootRef.current as any).cylinders) {
+            (mujocoRootRef.current as any).cylinders.visible = true;
+          }
+          if ((mujocoRootRef.current as any).spheres) {
+            (mujocoRootRef.current as any).spheres.visible = true;
+          }
+        }
+        console.log('[TRAJECTORIES] Showing all original body meshes, tendons, and ground plane');
       }
     }
 

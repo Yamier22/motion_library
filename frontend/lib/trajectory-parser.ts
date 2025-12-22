@@ -57,8 +57,8 @@ export async function parseNPY(blob: Blob): Promise<TrajectoryData> {
 /**
  * Parse NPZ file (zipped numpy archive)
  * Expected to contain:
- * - 'qpos_traj': array with shape [time, qpos]
- * - 'framerate': scalar or single value (optional, defaults to 30)
+ * - A key starting with 'qpos' (e.g., 'qpos', 'qpos_traj', 'qpos.npy'): array with shape [time, qpos]
+ * - 'framerate' or 'frame_rate': scalar or single value (optional, defaults to 30)
  */
 export async function parseNPZ(blob: Blob): Promise<TrajectoryData> {
   try {
@@ -68,11 +68,19 @@ export async function parseNPZ(blob: Blob): Promise<TrajectoryData> {
     // Unzip the NPZ file
     const unzipped = unzipSync(uint8Array);
 
-    // Find qpos_traj file
-    const qposTrajKey = Object.keys(unzipped).find(k => k === 'qpos_traj.npy' || k === 'qpos_traj');
+    // Find qpos file - look for any key starting with "qpos"
+    // This supports: qpos_traj, qpos_traj.npy, qpos, qpos.npy, etc.
+    const qposTrajKey = Object.keys(unzipped).find(k => {
+      const keyName = k.replace('.npy', ''); // Remove .npy extension if present
+      return keyName.startsWith('qpos');
+    });
+    
     if (!qposTrajKey) {
-      throw new Error('NPZ file must contain "qpos_traj" array');
+      const availableKeys = Object.keys(unzipped).join(', ');
+      throw new Error(`NPZ file must contain a "qpos" array (keys starting with "qpos"). Available keys: ${availableKeys}`);
     }
+    
+    console.log(`[TRAJECTORY PARSER] Found qpos data with key: ${qposTrajKey}`);
 
     // Parse qpos trajectory
     const npyData: NpyArray = await loadNpy(unzipped[qposTrajKey]);
