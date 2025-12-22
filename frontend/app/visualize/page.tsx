@@ -322,7 +322,7 @@ export default function VisualizePage() {
         {/* Sidebar */}
         <div className="w-80 bg-gray-800 border-r border-gray-700 overflow-y-scroll flex-shrink-0">
           {/* Playback Controls - Always visible */}
-          <div className="border-b border-gray-700">
+          <div className="sticky top-0 z-10 bg-gray-800 border-b border-gray-700">
             <div className="p-3">
               <button
                 onClick={() => setIsPlaybackControlsExpanded(!isPlaybackControlsExpanded)}
@@ -387,7 +387,7 @@ export default function VisualizePage() {
               </div>
 
               {/* Speed Control */}
-              <div className="mb-4">
+              <div>
                 <label htmlFor="playback-speed" className="block text-xs font-medium text-gray-300 mb-2">
                   Playback Speed
                 </label>
@@ -406,31 +406,33 @@ export default function VisualizePage() {
                   <option value={2}>2x</option>
                 </select>
               </div>
-
-              {/* Keyboard Shortcuts Guide */}
-              <div className="mt-4 pt-4 border-t border-gray-700">
-                <h4 className="text-xs font-semibold text-gray-300 mb-2">Keyboard Shortcuts</h4>
-                <div className="space-y-1 text-xs text-gray-400">
-                  <div className="flex justify-between">
-                    <span>Play/Pause</span>
-                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">Space</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Reset</span>
-                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">R</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>±1 second</span>
-                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">← →</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>±1 frame</span>
-                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">↑ ↓</span>
-                  </div>
-                </div>
-              </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Keyboard Shortcuts Guide - Separate section */}
+          <div className="border-b border-gray-700">
+            <div className="p-3">
+              <h4 className="text-sm font-semibold text-gray-300 mb-3">Keyboard Shortcuts</h4>
+              <div className="space-y-1 text-xs text-gray-400">
+                <div className="flex justify-between">
+                  <span>Play/Pause</span>
+                  <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">Space</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Reset</span>
+                  <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">R</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>±1 second</span>
+                  <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">← →</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>±1 frame</span>
+                  <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">↑ ↓</span>
+                </div>
+              </div>
             </div>
           </div>
 
