@@ -6,12 +6,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import MuJoCoViewer, { ViewerOptions, TrajectoryPlaybackState, MuJoCoViewerRef } from '@/components/MuJoCoViewer';
 import ModelSelector from '@/components/ModelSelector';
 import TrajectorySelector from '@/components/TrajectorySelector';
-import TrajectoryUpload from '@/components/TrajectoryUpload';
 import ViewerOptionsPanel from '@/components/ViewerOptions';
 import VideoControls, { MuJoCoCamera } from '@/components/VideoControls';
 import { ModelMetadata, TrajectoryMetadata } from '@/lib/api';
 import { parseTrajectory, TrajectoryData } from '@/lib/trajectory-parser';
-import TrajectoryList from '@/components/TrajectoryList';
 
 interface LoadedTrajectory {
   id: string;
@@ -457,31 +455,16 @@ export default function VisualizePage() {
             />
           </div>
 
-          {/* Trajectory Loading Section */}
-          <div className="p-4 border-b border-gray-700">
-            <h3 className="text-sm font-medium text-gray-300 mb-3">Add Trajectory</h3>
-
-            {/* Server trajectories */}
-            <div className="mb-3">
-              <TrajectorySelector
-                onTrajectorySelect={handleTrajectorySelect}
-                selectedTrajectoryId={undefined}
-              />
-            </div>
-
-            {/* Local upload */}
-            <TrajectoryUpload
-              onFileSelect={handleLocalTrajectoryUpload}
-              disabled={!selectedModel}
-            />
-          </div>
-
-          {/* Loaded Trajectories List */}
-          <div className="p-4 border-b border-gray-700">
-            <TrajectoryList
-              trajectories={loadedTrajectories}
+          {/* Trajectory Section (Server + Local + Loaded) */}
+          <div className="border-b border-gray-700">
+            <TrajectorySelector
+              onTrajectorySelect={handleTrajectorySelect}
+              selectedTrajectoryId={undefined}
+              onLocalFileSelect={handleLocalTrajectoryUpload}
+              localUploadDisabled={!selectedModel}
+              loadedTrajectories={loadedTrajectories}
               onToggleGhost={handleToggleGhost}
-              onRemove={handleRemoveTrajectory}
+              onRemoveTrajectory={handleRemoveTrajectory}
             />
           </div>
 
