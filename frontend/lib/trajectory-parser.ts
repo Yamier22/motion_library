@@ -111,8 +111,15 @@ export async function parseNPZ(blob: Blob): Promise<TrajectoryData> {
     if (framerateKey) {
       try {
         const frData: NpyArray = await loadNpy(unzipped[framerateKey]);
-        const frArray = frData.data as Float64Array;
-        frameRate = frArray[0];
+        const frArray = frData.data;
+        if (frArray.length > 0) {
+          const value = frArray[0];
+          if (typeof value === 'bigint') {
+            frameRate = Number(value);  // ✅ 显式转换 BigInt → Number
+          } else {
+            frameRate = value as number;
+          }
+        }
       } catch (error) {
         console.warn('Could not parse framerate from NPZ, using default 30 fps');
       }

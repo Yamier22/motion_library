@@ -43,6 +43,8 @@ interface LoadedTrajectory {
     frameRate: number;
   };
   isGhost: boolean;
+  visible?: boolean;
+  startFrame?: number;
   source: 'server' | 'local';
 }
 
@@ -947,7 +949,21 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
           const entry = trajectoryBodiesMap.current.get(traj.id);
           if (!entry || !traj.data.qpos.length) return;
 
-          const trajectoryFrame = Math.min(frame, traj.data.qpos.length - 1);
+          // Check visibility
+          if (traj.visible === false) {
+            entry.root.visible = false;
+            return;
+          }
+          entry.root.visible = true;
+
+          // Calculate frame index: currentFrame + startFrame
+          // This means when global playback is at frame N, this trajectory shows frame (N + startFrame)
+          const startFrame = traj.startFrame || 0;
+          const trajectoryFrame = Math.min(
+            Math.max(0, frame + startFrame),
+            traj.data.qpos.length - 1
+          );
+
           const qposData = traj.data.qpos[trajectoryFrame];
 
           if (qposData && qposData.length === modelRef.current!.nq) {
@@ -1080,17 +1096,27 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
         // Render and encode frames incrementally (streaming - no buffering!)
         console.log('[VIDEO] Rendering and encoding frames (streaming)...');
         for (let videoFrame = 0; videoFrame < totalVideoFrames; videoFrame++) {
-          // Calculate which trajectory frame corresponds to this video frame
-          const trajectoryTime = (videoFrame / videoFrameRate);
-          const trajectoryFrameIndex = Math.min(
-            Math.round(trajectoryTime * trajectoryFrameRate),
-            totalTrajectoryFrames - 1
-          );
+          // Calculate current time for this video frame
+          const currentTime = videoFrame / videoFrameRate;
 
           // Render all loaded trajectories
           trajectories.forEach(traj => {
             const entry = trajectoryBodiesMap.current.get(traj.id);
-            if (!entry || trajectoryFrameIndex >= traj.data.qpos.length) return;
+            if (!entry || !traj.data.qpos.length) return;
+
+            // Check visibility
+            if (traj.visible === false) {
+              entry.root.visible = false;
+              return;
+            }
+            entry.root.visible = true;
+
+            // Calculate frame index: videoFrame + startFrame
+            const startFrame = traj.startFrame || 0;
+            const trajectoryFrameIndex = Math.min(
+              Math.max(0, videoFrame + startFrame),
+              traj.data.qpos.length - 1
+            );
 
             const qposData = traj.data.qpos[trajectoryFrameIndex];
             if (qposData && qposData.length === modelRef.current!.nq) {
