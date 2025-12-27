@@ -521,7 +521,7 @@ export default function TrajectorySelector({
                             />
                             <div className="flex justify-between text-xs text-gray-400 mt-1">
                               <span>Frame 1</span>
-                              <span>Current: {currentTrajectoryFrame + 1}</span>
+                              <span>Current: {Math.floor(currentTrajectoryFrame) + 1}</span>
                               <span>Frame {frameCount}</span>
                             </div>
                           </div>
