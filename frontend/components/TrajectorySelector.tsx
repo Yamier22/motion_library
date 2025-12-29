@@ -12,6 +12,7 @@ interface LoadedTrajectory {
   visible?: boolean;
   startFrame?: number;
   source: 'server' | 'local';
+  customFrameRate?: number;
 }
 
 interface TrajectorySelectorProps {
@@ -23,6 +24,7 @@ interface TrajectorySelectorProps {
   onToggleGhost?: (id: string) => void;
   onToggleVisible?: (id: string) => void;
   onStartFrameChange?: (id: string, startFrame: number) => void;
+  onFrameRateChange?: (id: string, frameRate: number) => void;
   onRemoveTrajectory?: (id: string) => void;
   currentFrame?: number;
   primaryFrameRate?: number;
@@ -42,6 +44,7 @@ export default function TrajectorySelector({
   onToggleGhost,
   onToggleVisible,
   onStartFrameChange,
+  onFrameRateChange,
   onRemoveTrajectory,
   currentFrame = 0,
   primaryFrameRate = 30,
@@ -433,7 +436,7 @@ export default function TrajectorySelector({
                 {loadedTrajectories.map(traj => {
                   const frameCount = traj.data?.frameCount || 0;
                   const startFrame = traj.startFrame || 0;
-                  const frameRate = traj.data?.frameRate || 30;
+                  const frameRate = traj.customFrameRate || traj.data?.frameRate || 30;
                   const isVisible = traj.visible !== false;
                   
                   // Calculate current trajectory frame using time-based synchronization
@@ -482,33 +485,51 @@ export default function TrajectorySelector({
                           Ghost
                         </button>
 
-                        {/* Trajectory name */}
-                        <span className="flex-1 text-xs text-gray-200 truncate" title={traj.name}>
-                          {traj.name}
-                        </span>
+                    {/* Trajectory name */}
+                    <span className="flex-1 text-xs text-gray-200 truncate" title={traj.name}>
+                      {traj.name}
+                    </span>
 
-                        {/* Source badge */}
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          traj.source === 'server' ? 'bg-blue-600' : 'bg-green-600'
-                        }`}>
-                          {traj.source}
-                        </span>
+                    {/* Source badge */}
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      traj.source === 'server' ? 'bg-blue-600' : 'bg-green-600'
+                    }`}>
+                      {traj.source}
+                    </span>
 
-                        {/* Remove button */}
-                        <button
-                          onClick={() => onRemoveTrajectory?.(traj.id)}
-                          className="text-red-400 hover:text-red-300 text-sm"
-                          title="Remove trajectory"
-                        >
-                          ✕
-                        </button>
-                      </div>
+                    {/* Remove button */}
+                    <button
+                      onClick={() => onRemoveTrajectory?.(traj.id)}
+                      className="text-red-400 hover:text-red-300 text-sm"
+                      title="Remove trajectory"
+                    >
+                      ✕
+                    </button>
+                  </div>
 
                       {/* 第二行：Timeline Slider */}
                       {frameCount > 0 && (
                         <div className="space-y-1">
                           <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
-                            <span>{frameRate.toFixed(1)} fps</span>
+                            {/* 可编辑帧率 */}
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min="1"
+                                max="1000"
+                                step="1"
+                                value={Math.round(frameRate)}
+                                onChange={(e) => {
+                                  const newFrameRate = parseInt(e.target.value, 10);
+                                  if (!isNaN(newFrameRate) && newFrameRate >= 1 && newFrameRate <= 1000) {
+                                    onFrameRateChange?.(traj.id, newFrameRate);
+                                  }
+                                }}
+                                className="w-14 px-1 py-0.5 bg-gray-600 text-white text-xs rounded border border-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                title="Edit frame rate (1-1000 fps)"
+                              />
+                              <span>fps</span>
+                            </div>
                             <span>Start: Frame {startFrame + 1} / {frameCount}</span>
                           </div>
                           

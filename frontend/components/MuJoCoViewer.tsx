@@ -49,6 +49,7 @@ interface LoadedTrajectory {
   isGhost: boolean;
   visible?: boolean;
   startFrame?: number;
+  customFrameRate?: number;
   source: 'server' | 'local';
 }
 
@@ -951,7 +952,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
 
       if (currentTrajectories.length > 0 && modelRef.current && mujocoRef.current) {
         // Calculate primary frame rate (highest among all trajectories)
-        const primaryFrameRate = Math.max(...currentTrajectories.map(t => t.data.frameRate || 30));
+        const primaryFrameRate = Math.max(...currentTrajectories.map(t => t.customFrameRate || t.data.frameRate || 30));
         // Convert current frame to time (seconds)
         const currentTime = frame / primaryFrameRate;
 
@@ -969,14 +970,15 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
           // Calculate trajectory frame based on time synchronization
           // 1. Calculate start time based on startFrame
           const startFrame = traj.startFrame || 0;
-          const startTime = startFrame / (traj.data.frameRate || 30);
+          const effectiveFrameRate = traj.customFrameRate || traj.data.frameRate || 30;
+          const startTime = startFrame / effectiveFrameRate;
           
           // 2. Calculate trajectory time (current time + start time offset)
           const trajectoryTime = currentTime + startTime;
           
           // 3. Convert time to trajectory frame index based on trajectory's own frame rate
           const trajectoryFrame = Math.min(
-            Math.max(0, Math.floor(trajectoryTime * traj.data.frameRate)),
+            Math.max(0, Math.floor(trajectoryTime * effectiveFrameRate)),
             traj.data.qpos.length - 1
           );
 
@@ -1130,14 +1132,15 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
             // Calculate trajectory frame based on time synchronization
             // 1. Calculate start time based on startFrame
             const startFrame = traj.startFrame || 0;
-            const startTime = startFrame / (traj.data.frameRate || 30);
+            const effectiveFrameRate = traj.customFrameRate || traj.data.frameRate || 30;
+            const startTime = startFrame / effectiveFrameRate;
             
             // 2. Calculate trajectory time (current time + start time offset)
             const trajectoryTime = currentTime + startTime;
             
             // 3. Convert time to trajectory frame index based on trajectory's own frame rate
             const trajectoryFrameIndex = Math.min(
-              Math.max(0, Math.floor(trajectoryTime * traj.data.frameRate)),
+              Math.max(0, Math.floor(trajectoryTime * effectiveFrameRate)),
               traj.data.qpos.length - 1
             );
 

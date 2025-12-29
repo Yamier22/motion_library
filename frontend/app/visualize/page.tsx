@@ -19,6 +19,7 @@ interface LoadedTrajectory {
   visible: boolean;
   startFrame: number; // 起始帧（该轨迹从第几帧开始显示）
   source: 'server' | 'local';
+  customFrameRate?: number; // 用户自定义帧率（覆盖data.frameRate）
 }
 
 export default function VisualizePage() {
@@ -47,12 +48,13 @@ export default function VisualizePage() {
   // Playback loop - advance frames when playing
   // Use the highest frame rate as primary frame rate for time synchronization
   const primaryFrameRate = loadedTrajectories.length > 0
-    ? Math.max(...loadedTrajectories.map(traj => traj.data.frameRate || 30))
+    ? Math.max(...loadedTrajectories.map(traj => traj.customFrameRate || traj.data.frameRate || 30))
     : 30;
   
   // Calculate max frame count based on the longest trajectory duration (in time)
   const maxFrameCount = loadedTrajectories.reduce((max, traj) => {
-    const trajDuration = traj.data.frameCount / (traj.data.frameRate || 30); // seconds
+    const effectiveFrameRate = traj.customFrameRate || traj.data.frameRate || 30;
+    const trajDuration = traj.data.frameCount / effectiveFrameRate; // seconds
     const trajFrameCount = Math.ceil(trajDuration * primaryFrameRate);
     return Math.max(max, trajFrameCount);
   }, 0);
@@ -186,6 +188,15 @@ export default function VisualizePage() {
     setLoadedTrajectories(prev =>
       prev.map(traj =>
         traj.id === id ? { ...traj, startFrame: startFrame } : traj
+      )
+    );
+  };
+
+  // Change custom frame rate for a trajectory
+  const handleFrameRateChange = (id: string, frameRate: number) => {
+    setLoadedTrajectories(prev =>
+      prev.map(traj =>
+        traj.id === id ? { ...traj, customFrameRate: frameRate } : traj
       )
     );
   };
@@ -498,6 +509,7 @@ export default function VisualizePage() {
               onToggleVisible={handleToggleVisible}
               onStartFrameChange={handleStartFrameChange}
               onRemoveTrajectory={handleRemoveTrajectory}
+              onFrameRateChange={handleFrameRateChange}
               currentFrame={currentFrame}
               primaryFrameRate={primaryFrameRate}
             />
