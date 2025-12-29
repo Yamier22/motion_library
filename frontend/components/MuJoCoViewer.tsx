@@ -945,6 +945,11 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
       const frame = currentFrameRef.current;
 
       if (currentTrajectories.length > 0 && modelRef.current && mujocoRef.current) {
+        // Calculate primary frame rate (highest among all trajectories)
+        const primaryFrameRate = Math.max(...currentTrajectories.map(t => t.data.frameRate || 30));
+        // Convert current frame to time (seconds)
+        const currentTime = frame / primaryFrameRate;
+
         currentTrajectories.forEach((traj, index) => {
           const entry = trajectoryBodiesMap.current.get(traj.id);
           if (!entry || !traj.data.qpos.length) return;
@@ -956,11 +961,17 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
           }
           entry.root.visible = true;
 
-          // Calculate frame index: currentFrame + startFrame
-          // This means when global playback is at frame N, this trajectory shows frame (N + startFrame)
+          // Calculate trajectory frame based on time synchronization
+          // 1. Calculate start time based on startFrame
           const startFrame = traj.startFrame || 0;
+          const startTime = startFrame / (traj.data.frameRate || 30);
+          
+          // 2. Calculate trajectory time (current time + start time offset)
+          const trajectoryTime = currentTime + startTime;
+          
+          // 3. Convert time to trajectory frame index based on trajectory's own frame rate
           const trajectoryFrame = Math.min(
-            Math.max(0, frame + startFrame),
+            Math.max(0, Math.floor(trajectoryTime * traj.data.frameRate)),
             traj.data.qpos.length - 1
           );
 
@@ -1099,7 +1110,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
           // Calculate current time for this video frame
           const currentTime = videoFrame / videoFrameRate;
 
-          // Render all loaded trajectories
+          // Render all loaded trajectories using time-based synchronization
           trajectories.forEach(traj => {
             const entry = trajectoryBodiesMap.current.get(traj.id);
             if (!entry || !traj.data.qpos.length) return;
@@ -1111,10 +1122,17 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
             }
             entry.root.visible = true;
 
-            // Calculate frame index: videoFrame + startFrame
+            // Calculate trajectory frame based on time synchronization
+            // 1. Calculate start time based on startFrame
             const startFrame = traj.startFrame || 0;
+            const startTime = startFrame / (traj.data.frameRate || 30);
+            
+            // 2. Calculate trajectory time (current time + start time offset)
+            const trajectoryTime = currentTime + startTime;
+            
+            // 3. Convert time to trajectory frame index based on trajectory's own frame rate
             const trajectoryFrameIndex = Math.min(
-              Math.max(0, videoFrame + startFrame),
+              Math.max(0, Math.floor(trajectoryTime * traj.data.frameRate)),
               traj.data.qpos.length - 1
             );
 

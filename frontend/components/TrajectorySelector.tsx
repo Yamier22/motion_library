@@ -436,9 +436,19 @@ export default function TrajectorySelector({
                   const frameRate = traj.data?.frameRate || 30;
                   const isVisible = traj.visible !== false;
                   
-                  // Calculate current trajectory frame based on global currentFrame and startFrame
+                  // Calculate current trajectory frame using time-based synchronization
+                  // 1. Calculate start time based on startFrame
+                  const startTime = startFrame / frameRate;
+                  
+                  // 2. Convert global currentFrame to time using primary frame rate
+                  const currentTime = currentFrame / primaryFrameRate;
+                  
+                  // 3. Calculate trajectory time
+                  const trajectoryTime = currentTime + startTime;
+                  
+                  // 4. Convert time back to trajectory frame based on trajectory's frame rate
                   const currentTrajectoryFrame = Math.min(
-                    Math.max(0, currentFrame + startFrame),
+                    Math.max(0, Math.floor(trajectoryTime * frameRate)),
                     frameCount - 1
                   );
                   

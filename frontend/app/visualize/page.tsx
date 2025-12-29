@@ -45,10 +45,17 @@ export default function VisualizePage() {
   const [isPlaybackControlsExpanded, setIsPlaybackControlsExpanded] = useState(true);
 
   // Playback loop - advance frames when playing
-  // Use the longest trajectory to determine max frames
-  const maxFrameCount = loadedTrajectories.reduce((max, traj) =>
-    Math.max(max, traj.data.frameCount), 0);
-  const primaryFrameRate = loadedTrajectories[0]?.data.frameRate || 30;
+  // Use the highest frame rate as primary frame rate for time synchronization
+  const primaryFrameRate = loadedTrajectories.length > 0
+    ? Math.max(...loadedTrajectories.map(traj => traj.data.frameRate || 30))
+    : 30;
+  
+  // Calculate max frame count based on the longest trajectory duration (in time)
+  const maxFrameCount = loadedTrajectories.reduce((max, traj) => {
+    const trajDuration = traj.data.frameCount / (traj.data.frameRate || 30); // seconds
+    const trajFrameCount = Math.ceil(trajDuration * primaryFrameRate);
+    return Math.max(max, trajFrameCount);
+  }, 0);
 
   useEffect(() => {
     if (!playing || loadedTrajectories.length === 0) {
