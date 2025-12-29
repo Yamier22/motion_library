@@ -16,6 +16,8 @@ interface LoadedTrajectory {
   name: string;
   data: TrajectoryData;
   isGhost: boolean;
+  visible: boolean;
+  startFrame: number; // 起始帧（该轨迹从第几帧开始显示）
   source: 'server' | 'local';
 }
 
@@ -43,10 +45,17 @@ export default function VisualizePage() {
   const [isPlaybackControlsExpanded, setIsPlaybackControlsExpanded] = useState(true);
 
   // Playback loop - advance frames when playing
-  // Use the longest trajectory to determine max frames
-  const maxFrameCount = loadedTrajectories.reduce((max, traj) =>
-    Math.max(max, traj.data.frameCount), 0);
-  const primaryFrameRate = loadedTrajectories[0]?.data.frameRate || 30;
+  // Use the highest frame rate as primary frame rate for time synchronization
+  const primaryFrameRate = loadedTrajectories.length > 0
+    ? Math.max(...loadedTrajectories.map(traj => traj.data.frameRate || 30))
+    : 30;
+  
+  // Calculate max frame count based on the longest trajectory duration (in time)
+  const maxFrameCount = loadedTrajectories.reduce((max, traj) => {
+    const trajDuration = traj.data.frameCount / (traj.data.frameRate || 30); // seconds
+    const trajFrameCount = Math.ceil(trajDuration * primaryFrameRate);
+    return Math.max(max, trajFrameCount);
+  }, 0);
 
   useEffect(() => {
     if (!playing || loadedTrajectories.length === 0) {
@@ -110,6 +119,8 @@ export default function VisualizePage() {
         name: trajectory.filename,
         data: parsedData,
         isGhost: false,
+        visible: true,
+        startFrame: 0,
         source: 'server'
       };
 
@@ -134,6 +145,8 @@ export default function VisualizePage() {
         name: file.name,
         data: parsedData,
         isGhost: false,
+        visible: true,
+        startFrame: 0,
         source: 'local'
       };
 
@@ -157,6 +170,24 @@ export default function VisualizePage() {
   // Remove a trajectory
   const handleRemoveTrajectory = (id: string) => {
     setLoadedTrajectories(prev => prev.filter(traj => traj.id !== id));
+  };
+
+  // Toggle visibility for a trajectory
+  const handleToggleVisible = (id: string) => {
+    setLoadedTrajectories(prev =>
+      prev.map(traj =>
+        traj.id === id ? { ...traj, visible: !traj.visible } : traj
+      )
+    );
+  };
+
+  // Change start frame for a trajectory
+  const handleStartFrameChange = (id: string, startFrame: number) => {
+    setLoadedTrajectories(prev =>
+      prev.map(traj =>
+        traj.id === id ? { ...traj, startFrame: startFrame } : traj
+      )
+    );
   };
 
   const handlePlayPause = () => {
@@ -407,30 +438,30 @@ export default function VisualizePage() {
                 </div>
               )}
             </div>
-          </div>
+              </div>
 
           {/* Keyboard Shortcuts Guide - Separate section */}
           <div className="border-b border-gray-700">
             <div className="p-3">
               <h4 className="text-sm font-semibold text-gray-300 mb-3">Keyboard Shortcuts</h4>
-              <div className="space-y-1 text-xs text-gray-400">
-                <div className="flex justify-between">
-                  <span>Play/Pause</span>
-                  <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">Space</span>
+                <div className="space-y-1 text-xs text-gray-400">
+                  <div className="flex justify-between">
+                    <span>Play/Pause</span>
+                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">Space</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Reset</span>
+                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">R</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>±1 second</span>
+                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">← →</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>±1 frame</span>
+                    <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">↑ ↓</span>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span>Reset</span>
-                  <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">R</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>±1 second</span>
-                  <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">← →</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>±1 frame</span>
-                  <span className="font-mono bg-gray-700 px-2 py-0.5 rounded">↑ ↓</span>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -457,14 +488,18 @@ export default function VisualizePage() {
 
           {/* Trajectory Section (Server + Local + Loaded) */}
           <div className="border-b border-gray-700">
-            <TrajectorySelector
-              onTrajectorySelect={handleTrajectorySelect}
-              selectedTrajectoryId={undefined}
+              <TrajectorySelector
+                onTrajectorySelect={handleTrajectorySelect}
+                selectedTrajectoryId={undefined}
               onLocalFileSelect={handleLocalTrajectoryUpload}
               localUploadDisabled={!selectedModel}
               loadedTrajectories={loadedTrajectories}
               onToggleGhost={handleToggleGhost}
+              onToggleVisible={handleToggleVisible}
+              onStartFrameChange={handleStartFrameChange}
               onRemoveTrajectory={handleRemoveTrajectory}
+              currentFrame={currentFrame}
+              primaryFrameRate={primaryFrameRate}
             />
           </div>
 
