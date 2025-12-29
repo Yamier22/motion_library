@@ -20,6 +20,7 @@ import {
   downloadBlob
 } from '@/lib/video-recorder';
 import { StreamingRecorder } from '@/lib/streaming-recorder';
+import ParameterDisplay from './ParameterDisplay';
 
 export interface ViewerOptions {
   showFixedAxes: boolean;
@@ -41,6 +42,9 @@ interface LoadedTrajectory {
     qpos: Float64Array[];
     frameCount: number;
     frameRate: number;
+    extraParams?: {
+      [key: string]: Float64Array[];
+    };
   };
   isGhost: boolean;
   visible?: boolean;
@@ -106,6 +110,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showParameterDisplay, setShowParameterDisplay] = useState(false);
 
   // Update trajectory refs whenever props change
   useEffect(() => {
@@ -1195,9 +1200,41 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
     }
   }));
 
+  // Get trajectories with extra params
+  const trajectoriesWithParams = trajectories
+    .filter(t => t.visible !== false && t.data.extraParams && Object.keys(t.data.extraParams).length > 0)
+    .map(t => ({
+      id: t.id,
+      name: t.name,
+      extraParams: t.data.extraParams
+    }));
+
+  const hasAnyParams = trajectoriesWithParams.length > 0;
+
   return (
     <div className="absolute inset-0">
       <div ref={containerRef} className="absolute inset-0" />
+      
+      {/* Parameter Display Toggle Button */}
+      {hasAnyParams && (
+        <button
+          onClick={() => setShowParameterDisplay(!showParameterDisplay)}
+          className="absolute top-4 left-4 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white text-xs rounded border border-gray-600 shadow-lg z-20"
+          title={showParameterDisplay ? 'Hide Parameters' : 'Show Parameters'}
+        >
+          {showParameterDisplay ? 'Hide' : 'Show'} Params
+        </button>
+      )}
+
+      {/* Parameter Display Window */}
+      {showParameterDisplay && hasAnyParams && (
+        <ParameterDisplay
+          trajectories={trajectoriesWithParams}
+          currentFrame={currentFrame}
+          onClose={() => setShowParameterDisplay(false)}
+        />
+      )}
+      
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 z-10">
           <div className="text-white text-lg">Loading MuJoCo...</div>
