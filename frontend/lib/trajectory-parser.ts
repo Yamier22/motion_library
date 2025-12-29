@@ -115,12 +115,17 @@ export async function parseNPZ(blob: Blob): Promise<TrajectoryData> {
       try {
         const frData: NpyArray = await loadNpy(unzipped[framerateKey]);
         const frArray = frData.data;
-        if (frArray.length > 0) {
-          const value = frArray[0];
-          if (typeof value === 'bigint') {
-            frameRate = Number(value);  // ✅ 显式转换 BigInt → Number
-          } else {
-            frameRate = value as number;
+        // Type guard: check if frArray is array-like and has elements
+        if (frArray && typeof frArray === 'object' && 'length' in frArray) {
+          const arrayLength = (frArray as unknown as { length: number }).length;
+          if (arrayLength > 0) {
+            // Two-step type assertion via unknown to satisfy TypeScript
+            const value = (frArray as unknown as ArrayLike<number | bigint>)[0];
+            if (typeof value === 'bigint') {
+              frameRate = Number(value);  // ✅ 显式转换 BigInt → Number
+            } else if (typeof value === 'number') {
+              frameRate = value;
+            }
           }
         }
       } catch (error) {
