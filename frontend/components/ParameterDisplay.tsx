@@ -118,22 +118,25 @@ export default function ParameterDisplay({
         </div>
       )}
 
-      {/* Parameter type tabs */}
+      {/* Parameter type selector - vertical layout */}
       {paramTypes.length > 0 && (
-        <div className="flex border-b border-gray-700 overflow-x-auto">
-          {paramTypes.map(paramType => (
-            <button
-              key={paramType}
-              onClick={() => setSelectedParam(paramType)}
-              className={`px-4 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
-                selectedParam === paramType
-                  ? 'bg-blue-600 text-white border-b-2 border-blue-500'
-                  : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700'
-              }`}
-            >
-              {paramType}
-            </button>
-          ))}
+        <div className="p-2 border-b border-gray-700">
+          <label className="text-xs text-gray-400 mb-2 block">Parameter Type:</label>
+          <div className="max-h-32 overflow-y-auto space-y-1">
+            {paramTypes.map(paramType => (
+              <button
+                key={paramType}
+                onClick={() => setSelectedParam(paramType)}
+                className={`w-full px-3 py-1.5 text-xs font-medium text-left rounded transition-colors ${
+                  selectedParam === paramType
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700'
+                }`}
+              >
+                {paramType}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

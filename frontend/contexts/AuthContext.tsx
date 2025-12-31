@@ -23,7 +23,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const checkAuth = async () => {
-    const token = localStorage.getItem('token');
+    let token: string | null = null;
+    try {
+      token = localStorage.getItem('token');
+    } catch (e) {
+      // localStorage might not be available (e.g., in Cursor's built-in browser)
+      console.warn('localStorage not available:', e);
+      setIsLoading(false);
+      setIsAuthenticated(false);
+      return;
+    }
+
     if (!token) {
       setIsLoading(false);
       return;
@@ -33,7 +43,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await authApi.verify();
       setIsAuthenticated(true);
     } catch (error) {
-      localStorage.removeItem('token');
+      try {
+        localStorage.removeItem('token');
+      } catch (e) {
+        console.warn('Failed to remove token from localStorage:', e);
+      }
       setIsAuthenticated(false);
     } finally {
       setIsLoading(false);
@@ -43,7 +57,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (password: string) => {
     try {
       const response = await authApi.login(password);
-      localStorage.setItem('token', response.access_token);
+      try {
+        localStorage.setItem('token', response.access_token);
+      } catch (e) {
+        console.warn('Failed to save token to localStorage:', e);
+        // If localStorage is not available, we can't persist the session
+        // But we can still set authenticated state for current session
+        console.warn('Session will not persist across page reloads');
+      }
       setIsAuthenticated(true);
       router.push('/dashboard');
     } catch (error) {
@@ -52,7 +73,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
+    try {
+      localStorage.removeItem('token');
+    } catch (e) {
+      console.warn('Failed to remove token from localStorage:', e);
+    }
     setIsAuthenticated(false);
     router.push('/');
   };
