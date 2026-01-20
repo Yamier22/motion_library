@@ -60,6 +60,7 @@ interface MuJoCoViewerProps {
   options?: ViewerOptions;
   trajectories: LoadedTrajectory[];
   currentFrame: number;
+  primaryFrameRate?: number;
   onModelLoaded?: () => void;
   onError?: (error: string) => void;
   onCamerasLoaded?: (cameras: MuJoCoCamera[]) => void;
@@ -71,7 +72,7 @@ export interface MuJoCoViewerRef {
 }
 
 const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJoCoViewer(
-  { modelXML, modelId, modelMetadata, options, trajectories, currentFrame, onModelLoaded, onError, onCamerasLoaded, activeCamera },
+  { modelXML, modelId, modelMetadata, options, trajectories, currentFrame, primaryFrameRate = 30, onModelLoaded, onError, onCamerasLoaded, activeCamera },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1209,7 +1210,10 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
     .map(t => ({
       id: t.id,
       name: t.name,
-      extraParams: t.data.extraParams
+      extraParams: t.data.extraParams,
+      startFrame: t.startFrame || 0,
+      frameRate: t.customFrameRate || t.data.frameRate || 30,
+      frameCount: t.data.frameCount || 0
     }));
 
   const hasAnyParams = trajectoriesWithParams.length > 0;
@@ -1234,6 +1238,7 @@ const MuJoCoViewer = forwardRef<MuJoCoViewerRef, MuJoCoViewerProps>(function MuJ
         <ParameterDisplay
           trajectories={trajectoriesWithParams}
           currentFrame={currentFrame}
+          primaryFrameRate={primaryFrameRate}
           onClose={() => setShowParameterDisplay(false)}
         />
       )}
