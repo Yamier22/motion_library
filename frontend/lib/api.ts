@@ -12,9 +12,14 @@ export const api = axios.create({
 // Add token to requests
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    try {
+      const token = localStorage.getItem('token');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (e) {
+      // localStorage might not be available (e.g., in Cursor's built-in browser)
+      console.warn('localStorage not available, request will be unauthenticated:', e);
     }
     return config;
   },
@@ -28,8 +33,20 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/';
+      // Only redirect if we're not already on the login page
+      // This prevents infinite redirect loops
+      if (typeof window !== 'undefined' && !window.location.pathname.includes('/')) {
+        try {
+          localStorage.removeItem('token');
+        } catch (e) {
+          // localStorage might not be available (e.g., in Cursor's built-in browser)
+          console.warn('localStorage not available:', e);
+        }
+        // Only redirect if not already on login page
+        if (window.location.pathname !== '/') {
+          window.location.href = '/';
+        }
+      }
     }
     return Promise.reject(error);
   }

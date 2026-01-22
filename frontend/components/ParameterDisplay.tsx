@@ -14,17 +14,22 @@ interface TrajectoryInfo {
   extraParams?: {
     [key: string]: Float64Array[];
   };
+  startFrame: number;
+  frameRate: number;
+  frameCount: number;
 }
 
 interface ParameterDisplayProps {
   trajectories: TrajectoryInfo[];
   currentFrame: number;
+  primaryFrameRate: number;
   onClose: () => void;
 }
 
 export default function ParameterDisplay({
   trajectories,
   currentFrame,
+  primaryFrameRate,
   onClose
 }: ParameterDisplayProps) {
   const [selectedTrajectoryId, setSelectedTrajectoryId] = useState<string | null>(null);
@@ -78,9 +83,38 @@ export default function ParameterDisplay({
     );
   }
 
+  // Calculate trajectory-specific current frame
+  // This mirrors the logic in TrajectorySelector.tsx for currentTrajectoryFrame
+  const calculateTrajectoryFrame = () => {
+    if (!selectedTrajectory) return 0;
+    
+    const startFrame = selectedTrajectory.startFrame || 0;
+    const frameRate = selectedTrajectory.frameRate || 30;
+    const frameCount = selectedTrajectory.frameCount || 0;
+    
+    // 1. Calculate start time based on startFrame
+    const startTime = startFrame / frameRate;
+    
+    // 2. Convert global currentFrame to time using primary frame rate
+    const currentTime = currentFrame / primaryFrameRate;
+    
+    // 3. Calculate trajectory time
+    const trajectoryTime = currentTime + startTime;
+    
+    // 4. Convert time back to trajectory frame based on trajectory's frame rate
+    const currentTrajectoryFrame = Math.min(
+      Math.max(0, Math.floor(trajectoryTime * frameRate)),
+      frameCount - 1
+    );
+    
+    return currentTrajectoryFrame;
+  };
+
+  const trajectoryCurrentFrame = calculateTrajectoryFrame();
+
   // Get current frame data for selected parameter
   const currentParamData = selectedParam && extraParams && extraParams[selectedParam]
-    ? extraParams[selectedParam][Math.min(currentFrame, extraParams[selectedParam].length - 1)]
+    ? extraParams[selectedParam][Math.min(trajectoryCurrentFrame, extraParams[selectedParam].length - 1)]
     : null;
 
   return (
@@ -118,22 +152,25 @@ export default function ParameterDisplay({
         </div>
       )}
 
-      {/* Parameter type tabs */}
+      {/* Parameter type selector - vertical layout */}
       {paramTypes.length > 0 && (
-        <div className="flex border-b border-gray-700 overflow-x-auto">
-          {paramTypes.map(paramType => (
-            <button
-              key={paramType}
-              onClick={() => setSelectedParam(paramType)}
-              className={`px-4 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
-                selectedParam === paramType
-                  ? 'bg-blue-600 text-white border-b-2 border-blue-500'
-                  : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700'
-              }`}
-            >
-              {paramType}
-            </button>
-          ))}
+        <div className="p-2 border-b border-gray-700">
+          <label className="text-xs text-gray-400 mb-2 block">Parameter Type:</label>
+          <div className="max-h-32 overflow-y-auto space-y-1">
+            {paramTypes.map(paramType => (
+              <button
+                key={paramType}
+                onClick={() => setSelectedParam(paramType)}
+                className={`w-full px-3 py-1.5 text-xs font-medium text-left rounded transition-colors ${
+                  selectedParam === paramType
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-gray-300 hover:bg-gray-700'
+                }`}
+              >
+                {paramType}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -142,7 +179,7 @@ export default function ParameterDisplay({
         {extraParams && selectedParam && extraParams[selectedParam] ? (
           <>
             <div className="text-xs text-gray-400 mb-2">
-              Frame {currentFrame + 1} / {extraParams[selectedParam].length}
+              Frame {trajectoryCurrentFrame + 1} / {extraParams[selectedParam].length}
             </div>
 
             {currentParamData ? (

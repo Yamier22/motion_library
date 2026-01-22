@@ -533,6 +533,7 @@ export default function VisualizePage() {
             modelMetadata={selectedModel ?? undefined}
             trajectories={loadedTrajectories}
             currentFrame={Math.floor(currentFrame)}
+            primaryFrameRate={primaryFrameRate}
             options={viewerOptions}
             onModelLoaded={() => console.log('Model loaded successfully')}
             onError={(error) => console.error('Viewer error:', error)}
